@@ -308,27 +308,20 @@ function shell(opts) {
   const { user, school } = state.me;
   const year = currentYear();
   const admin = isAdmin();
-  const sections = [
-    ['Pédagogie', [
-      ['#/', 'Tableau de bord', 'dashboard'],
-      ['#/classes', 'Classes', 'classes'],
-      ['#/notes', 'Saisie des notes', 'notes'],
-      ...(admin ? [['#/matieres', 'Matières', 'subjects']] : []),
-    ]],
-    ...(admin ? [['Administration', [
+  const links = [
+    ['#/', 'Tableau de bord', 'dashboard'],
+    ['#/classes', 'Classes', 'classes'],
+    ['#/notes', 'Saisie des notes', 'notes'],
+    ...(admin ? [
+      ['#/matieres', 'Matières', 'subjects'],
       ['#/enseignants', 'Équipe', 'team'],
       ['#/etablissement', 'Établissement', 'school'],
-    ]]] : []),
+    ] : []),
   ];
-  return html`<div class="app design-${currentDesign()} ${opts.nav === '#/' ? 'on-dashboard' : ''}">
+  return html`<div class="app ${opts.nav === '#/' ? 'on-dashboard' : ''}">
     <aside class="sidebar">
       <a class="brand" href="#/"><span class="brand-logo"><img src="/icon.svg" alt=""></span><span>Ndamely<small>${school.name}</small></span></a>
-      ${sections.map(([title, links]) => html`<div class="nav-section">${title}</div>
-        <nav class="nav">${links.map(([href, label, ic]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`)}</nav>`)}
-      <div class="design-switch" role="group" aria-label="Choix du design">
-        <span>Design</span>
-        ${['1', '2'].map((d) => html`<button type="button" data-design="${d}" class="${currentDesign() === d ? 'on' : ''}" aria-pressed="${currentDesign() === d}">${d}</button>`)}
-      </div>
+      <nav class="nav">${links.map(([href, label, ic]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`)}</nav>
       <div class="me">
         <span class="avatar">${initials(user.name)}</span>
         <span class="me-text"><strong>${user.name}</strong><span>${user.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span></span>
@@ -349,9 +342,6 @@ function shell(opts) {
   </div>`;
 }
 
-/** Design choisi (1 : menu clair, 2 : menu vert foncé) — sélecteur provisoire pour comparer. */
-const currentDesign = () => (safeGet('ndamely.design') === '2' ? '2' : '1');
-
 /** Les sélecteurs de période (barre du haut, bandeau du tableau de bord) rechargent la page sur la période choisie. */
 function bindPeriodSelects(root) {
   $$('select[data-period]', root).forEach((sel) => sel.addEventListener('change', (e) => {
@@ -369,10 +359,6 @@ function bindShell() {
     go('#/connexion');
   };
   $('#menu').onclick = () => $('.app').classList.toggle('menu-open');
-  $$('[data-design]').forEach((b) => (b.onclick = () => {
-    safeSet('ndamely.design', b.dataset.design);
-    render();
-  }));
   bindPeriodSelects(document);
   updateSync();
 }
@@ -476,81 +462,10 @@ async function viewDashboard(view) {
   const cta = myPrimary.length === 1
     ? ['Saisir une composition', `#/composition/${myPrimary[0].id}`]
     : [isPrimarySchool() ? 'Saisir une composition' : 'Saisir des notes', '#/notes'];
-  const kpi = (label, value, ic, tone) => html`<div class="kpi">
-    <div class="kpi-top"><span class="label">${label}</span><span class="kpi-icon ${tone}">${icon(ic)}</span></div>
-    <div class="value">${value ?? 0}</div></div>`;
-
-  if (currentDesign() === '2') {
-    return renderDashboard2(view, { dash, user, period, year, periodName, steps, showChecklist, doneCount, pct, nextStep, cta, myPrimary, otherSubjects, canBulletins });
-  }
-
-  view.innerHTML = html`
-    <div class="page-head"><div><h1>Bonjour ${user.name.split(' ')[0]}</h1>
-      <p class="muted">${dash.year ? `Voici un aperçu de l'année scolaire ${dash.year.label}${periodName ? ` · ${periodName}` : ''}` : 'Aucune année scolaire active'}</p></div>
-      <a class="btn primary lg" href="${cta[1]}">${icon('plus')}${cta[0]}</a></div>
-    ${myPrimary.map((c) => html`<div class="card">
-      <div class="card-head"><div><h2>Ma classe : ${c.name}</h2>
-        <p class="muted small">${c.students} élève(s) · ${c.subjects} matière(s) · notes sur ${c.scale}</p></div></div>
-      <div class="row">
-        <a class="btn primary" href="#/composition/${c.id}">Saisir une composition</a>
-        <a class="btn" href="#/resultats/${c.id}">Résultats</a>
-        <a class="btn" href="#/bulletins/${c.id}?periode=${period}">Bulletins</a>
-        <a class="btn" href="#/classes/${c.id}">Liste des élèves</a>
-      </div></div>`)}
-    ${isAdmin() || !myPrimary.length ? html`<div class="kpis">
-      ${kpi('Classes', dash.counts.classes, 'classes', 'green')}
-      ${kpi('Élèves', dash.counts.students, 'students', 'blue')}
-      ${isAdmin() ? kpi('Enseignants', dash.counts.teachers, 'teacher', 'orange') : ''}
-      ${kpi('Évaluations saisies', dash.counts.evaluations, 'evaluations', 'purple')}
-    </div>` : ''}
-    ${showChecklist ? html`<div class="card">
-      <div class="card-head"><div><h2>Pour bien démarrer</h2><p class="muted small">${doneCount} étape${doneCount > 1 ? 's' : ''} sur ${steps.length} terminée${doneCount > 1 ? 's' : ''}</p></div>
-        <div class="progress"><div class="bar"><i style="width:${pct}%"></i></div><strong>${pct} %</strong></div></div>
-      <div class="steps">${steps.map(([k, label, href]) => dash.checklist[k]
-        ? html`<div class="step done">${icon('check')}<span>${STEP_DONE[k] ?? label}</span></div>`
-        : html`<a class="step ${k === nextStep ? 'next' : ''}" href="${href}">${icon(k === nextStep ? 'plusCircle' : 'circle')}<span>${label}</span>${k === nextStep ? icon('arrow', 'end') : ''}</a>`)}</div>
-    </div>` : ''}
-    ${otherSubjects.length && !isAdmin() ? html`<div class="card"><h2>Mes matières</h2><div class="grid">
-      ${otherSubjects.map((s) => html`<a class="btn" href="#/notes/${s.id}">${s.class_name} · ${s.subject_name}</a>`)}
-    </div></div>` : ''}
-    ${isAdmin() || !myPrimary.length ? html`<div class="card flush">
-      <div class="card-head"><div><h2>Classes</h2><p class="muted small">${dash.classes.length} classe${dash.classes.length > 1 ? 's' : ''}${dash.year ? ` · ${dash.year.label}` : ''}</p></div>
-        <div class="row">
-          ${dash.classes.length > 1 ? html`<label class="search">${icon('search')}<input type="search" id="class-search" placeholder="Rechercher une classe" aria-label="Rechercher une classe"></label>` : ''}
-          ${isAdmin() ? html`<a class="btn" href="#/classes">${icon('plus')}Nouvelle classe</a>` : ''}
-        </div></div>
-      ${dash.classes.length ? html`<div class="table-wrap"><table class="data roomy">
-        <thead><tr><th>Classe</th><th>Maître / prof. principal</th><th>Élèves</th><th>Matières</th><th class="actions">Actions</th></tr></thead>
-        <tbody>${dash.classes.map((c) => html`<tr data-search="${`${c.name} ${c.level} ${c.main_teacher_name ?? ''}`.toLowerCase()}">
-          <td><a class="class-cell" href="#/classes/${c.id}"><span class="class-badge">${levelCode(c)}</span>
-            <span><strong>${c.name}</strong><small>${levelName(c)}</small></span></a></td>
-          <td>${c.main_teacher_name
-            ? html`<span class="person"><span class="avatar sm">${initials(c.main_teacher_name)}</span>${c.main_teacher_name}</span>`
-            : html`<span class="muted">—</span>`}</td>
-          <td>${c.students}</td>
-          <td><span class="badge">${c.subjects} matière${c.subjects > 1 ? 's' : ''}</span></td>
-          <td class="actions">
-            ${c.cycle === 'primaire' && canBulletins(c) ? html`<a class="btn sm primary" href="#/composition/${c.id}">Composition</a>` : ''}
-            <a class="btn sm" href="#/resultats/${c.id}">Résultats</a>
-            ${canBulletins(c) ? html`<a class="btn sm" href="#/bulletins/${c.id}?periode=${period}">Bulletins</a>` : ''}
-          </td></tr>`)}</tbody></table></div>
-        <p class="empty" id="no-match" hidden>Aucune classe ne correspond à cette recherche.</p>`
-        : html`<p class="empty">Aucune classe pour le moment. ${isAdmin() ? html`<a href="#/classes">Créer les classes</a>` : ''}</p>`}
-    </div>` : ''}`.s;
-
-  $('#class-search', view)?.addEventListener('input', (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    let shown = 0;
-    $$('tr[data-search]', view).forEach((tr) => {
-      const ok = !q || tr.dataset.search.includes(q);
-      tr.hidden = !ok;
-      shown += ok;
-    });
-    $('#no-match', view).hidden = shown > 0;
-  });
+  return renderDashboard(view, { dash, user, period, year, periodName, steps, showChecklist, doneCount, pct, nextStep, cta, myPrimary, otherSubjects, canBulletins });
 }
 
-// Libellés courts des étapes (design 2, « Mise en route »).
+// Libellés courts des étapes (« Mise en route »).
 const STEP_SHORT = {
   school: "Informations de l'école",
   classes: 'Création des classes',
@@ -571,7 +486,7 @@ function dashboardMessage({ dash, steps, nextStep, periodName }) {
   return `Prochaine étape : ${label.charAt(0).toLowerCase()}${label.slice(1)}.`;
 }
 
-function renderDashboard2(view, ctx) {
+function renderDashboard(view, ctx) {
   const { dash, user, period, year, steps, showChecklist, doneCount, pct, nextStep, cta, myPrimary, otherSubjects, canBulletins } = ctx;
   const admin = isAdmin();
   const shownClasses = myPrimary.length ? myPrimary : dash.classes;
@@ -669,26 +584,6 @@ function renderDashboard2(view, ctx) {
     $('#no-match', view).hidden = shown > 0;
   });
 }
-
-// Libellés des étapes une fois terminées.
-const STEP_DONE = {
-  school: "Informations de l'école complétées",
-  classes: 'Classes créées',
-  teachers: 'Enseignants ajoutés',
-  subjects: 'Matières définies',
-  students: 'Élèves inscrits',
-  grades: 'Premières notes saisies',
-};
-
-const LEVEL_NAMES = {
-  CI: "Cours d'initiation", CP: 'Cours préparatoire', CE1: 'Cours élémentaire 1', CE2: 'Cours élémentaire 2',
-  CM1: 'Cours moyen 1', CM2: 'Cours moyen 2', '6E': 'Collège · 6e', '5E': 'Collège · 5e', '4E': 'Collège · 4e', '3E': 'Collège · 3e',
-  '2NDE': 'Lycée · Seconde', '1ERE': 'Lycée · Première', '1RE': 'Lycée · Première', TLE: 'Lycée · Terminale',
-};
-const levelWord = (c) => String(c.level || c.name).trim().split(/\s+/)[0];
-const levelCode = (c) => levelWord(c).slice(0, 4);
-const levelName = (c) => LEVEL_NAMES[levelWord(c).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')]
-  ?? (c.level && c.level !== c.name ? c.level : '');
 
 // =============================================================== classes
 
