@@ -275,7 +275,7 @@ function shell(opts) {
   ];
   return html`<div class="app">
     <aside class="sidebar">
-      <a class="brand" href="#/"><img src="/icon.svg" alt=""><span>Bulletin<small>${school.name}</small></span></a>
+      <a class="brand" href="#/"><img src="/icon.svg" alt=""><span>Ndamely<small>${school.name}</small></span></a>
       <nav class="nav">${links.map(([href, label]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${label}</a>`)}</nav>
       <div class="me">
         <strong>${user.name}</strong>
@@ -323,7 +323,7 @@ window.addEventListener('beforeunload', (e) => {
 
 async function viewLogin(view) {
   view.innerHTML = html`<div class="card">
-    <div class="brand"><img src="/icon.svg" alt=""><span>Bulletin</span></div>
+    <div class="brand"><img src="/icon.svg" alt=""><span>Ndamely</span></div>
     <p class="muted center">Notes, moyennes et bulletins de votre établissement.</p>
     <form class="stack" id="f">
       ${field('Adresse e-mail', 'email', { type: 'email', required: true, autocomplete: 'username' })}
@@ -938,7 +938,7 @@ async function viewBulletins(view, [classId], query) {
     </div>
     <div class="bulletins">${d.bulletins.length ? d.bulletins.map((b) => bulletinPage(d, b)) : html`<p class="empty">Aucun élève.</p>`}</div>`.s;
   $('#print').onclick = () => window.print();
-  window.addEventListener('hashchange', () => { document.title = 'Bulletin — Gestion des notes'; }, { once: true });
+  window.addEventListener('hashchange', () => { document.title = 'Ndamely — Gestion scolaire'; }, { once: true });
 }
 
 function bulletinPage(d, b) {
@@ -1030,7 +1030,7 @@ function bulletinPage(d, b) {
       <div>Le chef d'établissement<br><small>${school.director_name}</small></div>
       <div>Signature du parent</div>
     </div>
-    <div class="b-foot">Bulletin édité le ${today()} · Toute rature ou surcharge rend ce document nul.</div>
+    <div class="b-foot">Bulletin édité le ${today()} avec Ndamely · Toute rature ou surcharge rend ce document nul.</div>
   </section>`;
 }
 

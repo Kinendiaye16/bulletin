@@ -781,5 +781,5 @@ export const server = http.createServer(async (req, res) => {
 });
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.join(ROOT, 'server', 'index.js')) {
-  server.listen(PORT, () => console.log(`Bulletin est disponible sur http://localhost:${PORT}`));
+  server.listen(PORT, () => console.log(`Ndamely est disponible sur http://localhost:${PORT}`));
 }

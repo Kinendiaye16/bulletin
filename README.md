@@ -1,4 +1,6 @@
-# Bulletin — gestion des notes et des bulletins scolaires
+# Ndamely — gestion des notes et des bulletins scolaires
+
+*Ndamely* s'inspire du wolof *ndam*, « la victoire, la réussite ».
 
 MVP d'une plateforme SaaS de gestion pédagogique pour les établissements sénégalais (élémentaire, moyen, secondaire).
 
