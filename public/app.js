@@ -1710,34 +1710,100 @@ function bulletinPage(d, b) {
 
 // =============================================================== matières
 
+/** Abréviation d'une matière : « Calcul et mathématiques » → « Cm », « Dictée » → « Di ». */
+function subjectAbbr(name) {
+  const words = String(name).replace(/[^\p{L}\s'’-]/gu, ' ').split(/[\s'’-]+/)
+    .filter((w) => w.length > 2 && !['et', 'des', 'les', 'la', 'de', 'du'].includes(w.toLowerCase()));
+  if (words.length > 1) return words[0][0].toUpperCase() + words[1][0].toLowerCase();
+  const w = words[0] ?? String(name);
+  return w.slice(0, 1).toUpperCase() + w.slice(1, 2).toLowerCase();
+}
+
+/** Champ coefficient avec boutons − et +. */
+function coefStepper(name, value = 1) {
+  return html`<div class="stepper" data-stepper>
+    <button type="button" class="btn" data-step="-1" aria-label="Diminuer le coefficient">−</button>
+    <input name="${name}" value="${fmtNum(value)}" inputmode="decimal" required aria-label="Coefficient">
+    <button type="button" class="btn" data-step="1" aria-label="Augmenter le coefficient">+</button>
+  </div>`;
+}
+function bindSteppers(root) {
+  $$('[data-stepper]', root).forEach((st) => {
+    const input = $('input', st);
+    $$('[data-step]', st).forEach((b) => (b.onclick = () => {
+      const v = Number(String(input.value).replace(',', '.')) || 1;
+      input.value = fmtNum(Math.min(20, Math.max(1, Math.round(v) + Number(b.dataset.step))));
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }));
+  });
+}
+
 async function viewSubjects(view) {
-  const subjects = await api('GET', '/api/subjects');
+  const [subjects, classes] = await Promise.all([api('GET', '/api/subjects'), api('GET', '/api/classes')]);
   // Les cycles ne servent qu'aux établissements qui ont à la fois l'élémentaire et le collège-lycée.
   const mixed = state.me.school.school_type === 'mixte';
   const cycleField = (value = 'tous') => (mixed ? selectField('Cycle', 'cycle', SUBJECT_CYCLES, value) : '');
   const order = { primaire: 0, secondaire: 1, tous: 2 };
   const rows = mixed ? [...subjects].sort((a, b) => order[a.cycle] - order[b.cycle] || a.name.localeCompare(b.name, 'fr')) : subjects;
+  const segments = Math.min(6, Math.max(3, Math.ceil(Math.max(0, ...subjects.map((s) => s.default_coefficient)))));
+  const coefView = (c) => html`<span class="coef"><span class="coef-num">${fmtNum(c)}</span>
+    <span class="coef-bar" aria-hidden="true">${Array.from({ length: segments }, (_, i) => html`<i class="${i < Math.round(c) ? 'on' : ''}"></i>`)}</span></span>`;
+
   view.innerHTML = html`
-    <div class="page-head"><div><h1>Matières</h1>
-      <p class="muted">Liste des matières de l'établissement. Le coefficient par défaut est proposé à l'ajout dans une classe, et reste modifiable classe par classe.
-      ${mixed ? " Le cycle indique à quelles classes la matière est proposée : élémentaire, collège et lycée, ou tous." : ''}</p></div></div>
-    <details class="panel"><summary>+ Nouvelle matière</summary>
-      <form id="f" class="stack"><div class="form-grid">
-        ${field('Nom', 'name', { required: true, placeholder: 'Ex. : Arabe' })}
-        ${field('Coefficient par défaut', 'default_coefficient', { value: '1', inputmode: 'decimal', required: true })}
-        ${cycleField()}
-      </div><p class="form-error" hidden></p><div><button class="btn primary" type="submit">Ajouter</button></div></form>
-    </details>
-    <div class="table-wrap"><table class="data">
-      <thead><tr><th>Matière</th>${mixed ? html`<th>Cycle</th>` : ''}<th class="num">Coef. par défaut</th><th class="num">Classes</th><th></th></tr></thead>
-      <tbody>${rows.map((s) => html`<tr>
-        <td><strong>${s.name}</strong></td>
-        ${mixed ? html`<td><span class="badge ${s.cycle === 'tous' ? '' : 'green'}">${SUBJECT_CYCLES.find(([k]) => k === s.cycle)?.[1]}</span></td>` : ''}
-        <td class="num">${fmtNum(s.default_coefficient)}</td><td class="num">${s.used}</td>
-        <td class="actions"><button class="btn sm" data-edit="${s.id}">Modifier</button>
-          <button class="btn sm danger" data-del="${s.id}" ${raw(s.used ? 'disabled title="Utilisée dans des classes"' : '')}>Supprimer</button></td>
-      </tr>`)}</tbody></table></div>`.s;
-  bindForm($('#f'), async (data) => {
+    <div class="page-head">
+      <div class="title-with-icon"><span class="title-icon">${icon('subjects')}</span>
+        <div><h1>Matières</h1><p class="muted">${plural(subjects.length, 'matière')}${classes.length ? ` · enseignées dans ${classes.length > 1 ? `les ${classes.length} classes` : 'la classe'}` : ''}</p></div></div>
+      <button class="btn primary lg" type="button" id="go-add">${icon('plus')}Nouvelle matière</button>
+    </div>
+
+    <div class="notice info wide"><span class="notice-icon">${icon('info')}</span><div>
+      <strong>Comment fonctionne le coefficient ?</strong>
+      <p>Le coefficient par défaut est proposé quand on ajoute la matière à une classe. Il reste modifiable classe par classe.${mixed ? ' Le cycle indique à quelles classes la matière est proposée : élémentaire, collège et lycée, ou tous.' : ''}</p>
+    </div></div>
+
+    <div class="team-grid side-sm">
+      <section class="card team-list">
+        <div class="team-toolbar"><h2 style="margin:0">Toutes les matières</h2>
+          <label class="search">${icon('search')}<input type="search" id="subject-search" placeholder="Rechercher une matière" aria-label="Rechercher une matière"></label></div>
+        ${rows.length ? html`<div class="table-wrap flat"><table class="data subjects-table">
+          <thead><tr><th>Matière</th>${mixed ? html`<th>Cycle</th>` : ''}<th>Coef. par défaut</th><th>Utilisée dans</th><th class="actions">Actions</th></tr></thead>
+          <tbody>${rows.map((s) => html`<tr data-search="${s.name.toLowerCase()}">
+            <td><span class="subject-name"><span class="abbr">${subjectAbbr(s.name)}</span><strong>${s.name}</strong></span></td>
+            ${mixed ? html`<td><span class="badge ${s.cycle === 'tous' ? '' : 'green'}">${SUBJECT_CYCLES.find(([k]) => k === s.cycle)?.[1]}</span></td>` : ''}
+            <td>${coefView(s.default_coefficient)}</td>
+            <td><span class="used">${icon('classes')}${s.used ? plural(s.used, 'classe') : 'Aucune classe'}</span></td>
+            <td class="actions"><button class="btn sm" data-edit="${s.id}">${icon('notes')}Modifier</button>
+              <button class="btn sm icon-only danger" data-del="${s.id}" ${raw(s.used ? 'disabled' : '')}
+                title="${s.used ? 'Retirez d\'abord la matière des classes qui l\'utilisent' : 'Supprimer'}" aria-label="Supprimer ${s.name}">${icon('trash')}</button></td>
+          </tr>`)}</tbody></table></div>
+          <p class="empty" id="no-subject" hidden>Aucune matière ne correspond.</p>`
+          : html`<p class="empty">Aucune matière pour le moment.</p>`}
+      </section>
+
+      <aside class="card form-card add-member" id="add-subject">
+        <header><h2>Nouvelle matière</h2><p>Elle pourra ensuite être ajoutée aux classes.</p></header>
+        <form id="f" class="form-card-body">
+          ${field('Nom de la matière', 'name', { required: true, placeholder: "Ex. : Sciences d'observation" })}
+          <div class="field"><span>Coefficient par défaut</span>${coefStepper('default_coefficient', 1)}</div>
+          ${cycleField()}
+          <p class="form-error" hidden></p>
+          <button class="btn primary lg block" type="submit">${icon('plus')}Ajouter la matière</button>
+        </form>
+      </aside>
+    </div>`.s;
+
+  bindSteppers(view);
+  $('#subject-search', view)?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    let shown = 0;
+    $$('tr[data-search]', view).forEach((tr) => { const ok = !q || tr.dataset.search.includes(q); tr.hidden = !ok; shown += ok; });
+    $('#no-subject', view).hidden = shown > 0;
+  });
+  $('#go-add', view).onclick = () => {
+    $('#add-subject', view).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('#f [name=name]', view).focus({ preventScroll: true });
+  };
+  bindForm($('#f', view), async (data) => {
     await api('POST', '/api/subjects', data);
     toast('Matière ajoutée.');
     render();
@@ -1746,14 +1812,17 @@ async function viewSubjects(view) {
     const s = subjects.find((x) => x.id === Number(b.dataset.edit));
     openDialog({
       title: 'Modifier la matière',
-      body: html`${field('Nom', 'name', { required: true, value: s.name })}
-        ${field('Coefficient par défaut', 'default_coefficient', { value: fmtNum(s.default_coefficient), inputmode: 'decimal', required: true })}
-        ${cycleField(s.cycle)}`,
+      body: html`${field('Nom de la matière', 'name', { required: true, value: s.name })}
+        <div class="field"><span>Coefficient par défaut</span>${coefStepper('default_coefficient', s.default_coefficient)}</div>
+        ${cycleField(s.cycle)}
+        <p class="small muted">Changer le coefficient par défaut ne modifie pas les classes où la matière est déjà enseignée.</p>`,
       onSubmit: async (data) => {
         await api('PUT', `/api/subjects/${s.id}`, data);
+        toast('Matière modifiée.');
         render();
       },
     });
+    bindSteppers($('dialog.dialog:last-of-type'));
   }));
   $$('[data-del]', view).forEach((b) => (b.onclick = async () => {
     if (!confirm('Supprimer cette matière ?')) return;
