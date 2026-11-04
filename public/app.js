@@ -419,6 +419,7 @@ async function viewDashboard(view) {
 
 // =============================================================== classes
 
+const SUBJECT_CYCLES = [['primaire', 'Élémentaire'], ['secondaire', 'Collège et lycée'], ['tous', 'Tous les cycles']];
 const CYCLES = [['moyen', 'Moyen (6e – 3e)'], ['secondaire', 'Secondaire (2nde – Tle)'], ['primaire', 'Élémentaire (CI – CM2)']];
 
 async function viewClasses(view) {
@@ -579,7 +580,8 @@ function subjectTeacherOptions(users, subjectId, selected) {
 function renderClassSubjects(el, c, users, subjects) {
   const admin = isAdmin();
   const primary = c.cycle === 'primaire';
-  const available = subjects.filter((s) => !c.subjects.some((cs) => cs.subject_id === s.id));
+  const available = subjects.filter((s) => !c.subjects.some((cs) => cs.subject_id === s.id)
+    && (s.cycle === 'tous' || s.cycle === (primary ? 'primaire' : 'secondaire')));
   const totalCoef = c.subjects.reduce((s, x) => s + x.coefficient, 0);
   const missing = c.subjects.filter((s) => !s.teacher_id).length;
   const settingsLink = html`<a href="#/classes/${c.id}?onglet=parametres">paramètres de la classe</a>`;
@@ -1067,19 +1069,28 @@ function bulletinPage(d, b) {
 
 async function viewSubjects(view) {
   const subjects = await api('GET', '/api/subjects');
+  // Les cycles ne servent qu'aux établissements qui ont à la fois l'élémentaire et le collège-lycée.
+  const mixed = state.me.school.school_type === 'mixte';
+  const cycleField = (value = 'tous') => (mixed ? selectField('Cycle', 'cycle', SUBJECT_CYCLES, value) : '');
+  const order = { primaire: 0, secondaire: 1, tous: 2 };
+  const rows = mixed ? [...subjects].sort((a, b) => order[a.cycle] - order[b.cycle] || a.name.localeCompare(b.name, 'fr')) : subjects;
   view.innerHTML = html`
     <div class="page-head"><div><h1>Matières</h1>
-      <p class="muted">Liste des matières de l'établissement. Le coefficient par défaut est proposé à l'ajout dans une classe, et reste modifiable classe par classe.</p></div></div>
+      <p class="muted">Liste des matières de l'établissement. Le coefficient par défaut est proposé à l'ajout dans une classe, et reste modifiable classe par classe.
+      ${mixed ? " Le cycle indique à quelles classes la matière est proposée : élémentaire, collège et lycée, ou tous." : ''}</p></div></div>
     <details class="panel"><summary>+ Nouvelle matière</summary>
       <form id="f" class="stack"><div class="form-grid">
         ${field('Nom', 'name', { required: true, placeholder: 'Ex. : Arabe' })}
         ${field('Coefficient par défaut', 'default_coefficient', { value: '1', inputmode: 'decimal', required: true })}
+        ${cycleField()}
       </div><p class="form-error" hidden></p><div><button class="btn primary" type="submit">Ajouter</button></div></form>
     </details>
     <div class="table-wrap"><table class="data">
-      <thead><tr><th>Matière</th><th class="num">Coef. par défaut</th><th class="num">Classes</th><th></th></tr></thead>
-      <tbody>${subjects.map((s) => html`<tr>
-        <td><strong>${s.name}</strong></td><td class="num">${fmtNum(s.default_coefficient)}</td><td class="num">${s.used}</td>
+      <thead><tr><th>Matière</th>${mixed ? html`<th>Cycle</th>` : ''}<th class="num">Coef. par défaut</th><th class="num">Classes</th><th></th></tr></thead>
+      <tbody>${rows.map((s) => html`<tr>
+        <td><strong>${s.name}</strong></td>
+        ${mixed ? html`<td><span class="badge ${s.cycle === 'tous' ? '' : 'green'}">${SUBJECT_CYCLES.find(([k]) => k === s.cycle)?.[1]}</span></td>` : ''}
+        <td class="num">${fmtNum(s.default_coefficient)}</td><td class="num">${s.used}</td>
         <td class="actions"><button class="btn sm" data-edit="${s.id}">Modifier</button>
           <button class="btn sm danger" data-del="${s.id}" ${raw(s.used ? 'disabled title="Utilisée dans des classes"' : '')}>Supprimer</button></td>
       </tr>`)}</tbody></table></div>`.s;
@@ -1093,7 +1104,8 @@ async function viewSubjects(view) {
     openDialog({
       title: 'Modifier la matière',
       body: html`${field('Nom', 'name', { required: true, value: s.name })}
-        ${field('Coefficient par défaut', 'default_coefficient', { value: fmtNum(s.default_coefficient), inputmode: 'decimal', required: true })}`,
+        ${field('Coefficient par défaut', 'default_coefficient', { value: fmtNum(s.default_coefficient), inputmode: 'decimal', required: true })}
+        ${cycleField(s.cycle)}`,
       onSubmit: async (data) => {
         await api('PUT', `/api/subjects/${s.id}`, data);
         render();
@@ -1124,7 +1136,8 @@ function subjectChecks(subjects, selected = []) {
 async function viewTeachers(view) {
   // Au collège et au lycée, chaque professeur a sa ou ses matières ; à l'élémentaire, un maître par classe.
   const hasSecondary = state.me.school.school_type !== 'primaire';
-  const [users, subjects] = await Promise.all([api('GET', '/api/users'), hasSecondary ? api('GET', '/api/subjects') : []]);
+  const [users, allSubjects] = await Promise.all([api('GET', '/api/users'), hasSecondary ? api('GET', '/api/subjects') : []]);
+  const subjects = allSubjects.filter((s) => s.cycle !== 'primaire'); // les maîtres enseignent tout
   const subjectName = new Map(subjects.map((s) => [s.id, s.name]));
   const withSubjects = (data, form) => ({ ...data, subject_ids: new FormData(form).getAll('subject_ids') });
 

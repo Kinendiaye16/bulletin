@@ -1,19 +1,7 @@
 // Création d'un établissement et de ses données de départ.
 import { db, tx } from './db.js';
 import { hashPassword } from './auth.js';
-
-export const DEFAULT_SUBJECTS = {
-  primaire: [
-    ['Lecture', 2], ['Expression écrite', 2], ['Dictée', 1], ['Grammaire et conjugaison', 1],
-    ['Calcul et mathématiques', 3], ['Histoire', 1], ['Géographie', 1],
-    ["Sciences d'observation", 1], ['Éducation civique', 1], ['Éducation physique', 1],
-  ],
-  secondaire: [
-    ['Français', 3], ['Anglais', 2], ['Espagnol', 1], ['Mathématiques', 3],
-    ['Sciences de la vie et de la Terre', 2], ['Sciences physiques', 2], ['Histoire et géographie', 2],
-    ['Éducation civique', 1], ['Philosophie', 2], ['Éducation physique et sportive', 1],
-  ],
-};
+import { DEFAULT_SUBJECTS, defaultSubjectCycle } from './defaults.js';
 
 export const PERIOD_NAMES = {
   semestre: ['Premier semestre', 'Second semestre'],
@@ -51,8 +39,8 @@ export function createSchool({ schoolName, city = '', schoolType = 'secondaire',
     const lists = schoolType === 'mixte'
       ? [...DEFAULT_SUBJECTS.primaire, ...DEFAULT_SUBJECTS.secondaire]
       : DEFAULT_SUBJECTS[schoolType] || DEFAULT_SUBJECTS.secondaire;
-    const insert = db.prepare('INSERT OR IGNORE INTO subjects (school_id, name, default_coefficient) VALUES (?, ?, ?)');
-    for (const [name, coef] of lists) insert.run(schoolId, name, coef);
+    const insert = db.prepare('INSERT OR IGNORE INTO subjects (school_id, name, default_coefficient, cycle) VALUES (?, ?, ?, ?)');
+    for (const [name, coef] of lists) insert.run(schoolId, name, coef, defaultSubjectCycle(name));
     return { schoolId, userId: Number(userId) };
   });
 }

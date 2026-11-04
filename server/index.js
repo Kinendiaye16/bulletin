@@ -4,6 +4,7 @@ import path from 'node:path';
 import { db, tx, ROOT } from './db.js';
 import { hashPassword, verifyPassword, newToken } from './auth.js';
 import { createSchool, createYear, PERIOD_NAMES } from './school.js';
+import { subjectCycleForClass } from './defaults.js';
 import { computeClassResults, computeAnnual } from '../shared/calc.js';
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -11,6 +12,7 @@ const SESSION_MS = 30 * 24 * 3600 * 1000;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1' ? '; Secure' : '';
 const MAX_BODY = 2 * 1024 * 1024;
 const SCHOOL_TYPES = ['primaire', 'secondaire', 'mixte'];
+const SUBJECT_CYCLES = ['primaire', 'secondaire', 'tous'];
 
 // ---------------------------------------------------------------- outils
 
@@ -291,15 +293,18 @@ route('POST', '/api/subjects', ({ user, body }) => {
   const name = required(body.name, 'Le nom de la matière', 80);
   const coef = num(body.default_coefficient ?? 1, 'Le coefficient', { min: 0.5, max: 20 });
   if (db.prepare('SELECT 1 FROM subjects WHERE school_id = ? AND name = ?').get(user.school_id, name)) fail(409, 'Cette matière existe déjà.');
-  const r = db.prepare('INSERT INTO subjects (school_id, name, default_coefficient) VALUES (?, ?, ?)').run(user.school_id, name, coef);
+  const r = db.prepare('INSERT INTO subjects (school_id, name, default_coefficient, cycle) VALUES (?, ?, ?, ?)')
+    .run(user.school_id, name, coef, SUBJECT_CYCLES.includes(body.cycle) ? body.cycle : 'tous');
   return { id: Number(r.lastInsertRowid) };
 });
 
 route('PUT', '/api/subjects/:id', ({ user, params, body }) => {
+  const id = toId(params.id);
   const r = db.prepare('UPDATE subjects SET name = ?, default_coefficient = ? WHERE id = ? AND school_id = ?').run(
     required(body.name, 'Le nom de la matière', 80), num(body.default_coefficient ?? 1, 'Le coefficient', { min: 0.5, max: 20 }),
-    toId(params.id), user.school_id);
+    id, user.school_id);
   if (!r.changes) fail(404, 'Matière introuvable.');
+  if (SUBJECT_CYCLES.includes(body.cycle)) db.prepare('UPDATE subjects SET cycle = ? WHERE id = ?').run(body.cycle, id);
   return { ok: true };
 });
 
@@ -477,8 +482,10 @@ route('POST', '/api/classes/:id/subjects', ({ user, params, body }) => {
 
 route('POST', '/api/classes/:id/subjects/all', ({ user, params }) => {
   const c = loadClass(params.id, user);
-  const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND id NOT IN
-    (SELECT subject_id FROM class_subjects WHERE class_id = ?) ORDER BY name COLLATE NOCASE`).all(user.school_id, c.id);
+  // Seules les matières du cycle de la classe (ou communes à tous les cycles) sont ajoutées.
+  const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND cycle IN ('tous', ?) AND id NOT IN
+    (SELECT subject_id FROM class_subjects WHERE class_id = ?) ORDER BY name COLLATE NOCASE`)
+    .all(user.school_id, subjectCycleForClass(c.cycle), c.id);
   tx(() => {
     const insert = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)');
     let pos = nextPosition(c.id);

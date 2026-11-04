@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { defaultSubjectCycle } from './defaults.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS subjects (
   school_id           INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   name                TEXT NOT NULL,
   default_coefficient REAL NOT NULL DEFAULT 1,
+  cycle               TEXT NOT NULL DEFAULT 'tous', -- primaire, secondaire (collège et lycée) ou tous
   UNIQUE (school_id, name)
 );
 
@@ -153,6 +155,12 @@ CREATE INDEX IF NOT EXISTS idx_classes_year ON classes(year_id);
 const schoolColumns = db.prepare('PRAGMA table_info(schools)').all().map((c) => c.name);
 if (!schoolColumns.includes('school_type')) {
   db.exec("ALTER TABLE schools ADD COLUMN school_type TEXT NOT NULL DEFAULT 'secondaire'");
+}
+const subjectColumns = db.prepare('PRAGMA table_info(subjects)').all().map((c) => c.name);
+if (!subjectColumns.includes('cycle')) {
+  db.exec("ALTER TABLE subjects ADD COLUMN cycle TEXT NOT NULL DEFAULT 'tous'");
+  const update = db.prepare('UPDATE subjects SET cycle = ? WHERE id = ?');
+  for (const s of db.prepare('SELECT id, name FROM subjects').all()) update.run(defaultSubjectCycle(s.name), s.id);
 }
 
 export function tx(fn) {
