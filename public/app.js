@@ -1761,7 +1761,7 @@ async function viewSubjects(view) {
       <p>Le coefficient par défaut est proposé quand on ajoute la matière à une classe. Il reste modifiable classe par classe.${mixed ? ' Le cycle indique à quelles classes la matière est proposée : élémentaire, collège et lycée, ou tous.' : ''}</p>
     </div></div>
 
-    <div class="team-grid side-sm">
+    <div>
       <section class="card team-list">
         <div class="team-toolbar"><h2 style="margin:0">Toutes les matières</h2>
           <label class="search">${icon('search')}<input type="search" id="subject-search" placeholder="Rechercher une matière" aria-label="Rechercher une matière"></label></div>
@@ -1780,16 +1780,6 @@ async function viewSubjects(view) {
           : html`<p class="empty">Aucune matière pour le moment.</p>`}
       </section>
 
-      <aside class="card form-card add-member" id="add-subject">
-        <header><h2>Nouvelle matière</h2><p>Elle pourra ensuite être ajoutée aux classes.</p></header>
-        <form id="f" class="form-card-body">
-          ${field('Nom de la matière', 'name', { required: true, placeholder: "Ex. : Sciences d'observation" })}
-          <div class="field"><span>Coefficient par défaut</span>${coefStepper('default_coefficient', 1)}</div>
-          ${cycleField()}
-          <p class="form-error" hidden></p>
-          <button class="btn primary lg block" type="submit">${icon('plus')}Ajouter la matière</button>
-        </form>
-      </aside>
     </div>`.s;
 
   bindSteppers(view);
@@ -1800,14 +1790,23 @@ async function viewSubjects(view) {
     $('#no-subject', view).hidden = shown > 0;
   });
   $('#go-add', view).onclick = () => {
-    $('#add-subject', view).scrollIntoView({ behavior: 'smooth', block: 'start' });
-    $('#f [name=name]', view).focus({ preventScroll: true });
+    openDialog({
+      title: 'Nouvelle matière',
+      submitLabel: 'Ajouter la matière',
+      body: html`<p class="small muted" style="margin:0">Elle pourra ensuite être ajoutée aux classes.</p>
+        ${field('Nom de la matière', 'name', { required: true, placeholder: "Ex. : Sciences d'observation" })}
+        <div class="field"><span>Coefficient par défaut</span>${coefStepper('default_coefficient', 1)}</div>
+        ${cycleField()}`,
+      onSubmit: async (data) => {
+        await api('POST', '/api/subjects', data);
+        toast('Matière ajoutée.');
+        render();
+      },
+    });
+    const dlg = $('dialog.dialog:last-of-type');
+    bindSteppers(dlg);
+    $('[name=name]', dlg).focus();
   };
-  bindForm($('#f', view), async (data) => {
-    await api('POST', '/api/subjects', data);
-    toast('Matière ajoutée.');
-    render();
-  });
   $$('[data-edit]', view).forEach((b) => (b.onclick = () => {
     const s = subjects.find((x) => x.id === Number(b.dataset.edit));
     openDialog({
