@@ -334,7 +334,7 @@ function shell(opts) {
   ];
   return html`<div class="app ${opts.nav === '#/' ? 'on-dashboard' : ''}">
     <aside class="sidebar">
-      <a class="brand" href="#/"><span class="brand-logo"><img src="/icon.svg" alt=""></span><span>Ndamely<small>${school.name}</small></span></a>
+      <a class="brand" href="#/"><span class="brand-logo"><img src="/icon.svg" alt=""></span><span>Ndamely<small title="${school.name}">${school.name}</small></span></a>
       <nav class="nav">${links.map(([href, label, ic]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`)}</nav>
       <div class="me">
         <span class="avatar">${initials(user.name)}</span>
