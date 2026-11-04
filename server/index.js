@@ -4,7 +4,7 @@ import path from 'node:path';
 import { db, tx, ROOT } from './db.js';
 import { hashPassword, verifyPassword, newToken } from './auth.js';
 import { createSchool, createYear, PERIOD_NAMES } from './school.js';
-import { subjectCycleForClass } from './defaults.js';
+import { subjectCyclesForClass, SUBJECT_CYCLES, SERIES } from './defaults.js';
 import { computeClassResults, computeAnnual } from '../shared/calc.js';
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -12,7 +12,6 @@ const SESSION_MS = 30 * 24 * 3600 * 1000;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1' ? '; Secure' : '';
 const MAX_BODY = 2 * 1024 * 1024;
 const SCHOOL_TYPES = ['primaire', 'secondaire', 'mixte'];
-const SUBJECT_CYCLES = ['primaire', 'secondaire', 'tous'];
 
 // ---------------------------------------------------------------- outils
 
@@ -426,10 +425,12 @@ function classInput(body, user) {
   if (mainTeacher && !db.prepare('SELECT 1 FROM users WHERE id = ? AND school_id = ?').get(mainTeacher, user.school_id)) {
     fail(400, 'Professeur principal invalide.');
   }
+  const serie = cycle === 'secondaire' && SERIES.includes(body.serie) ? body.serie : '';
   return {
     name: required(body.name, 'Le nom de la classe', 40),
     level: str(body.level, 40),
     cycle,
+    serie,
     scale: Number(body.scale) === 10 ? 10 : Number(body.scale) === 20 ? 20 : cycle === 'primaire' ? 10 : 20,
     mainTeacher,
   };
@@ -470,8 +471,8 @@ route('POST', '/api/classes', ({ user, body }) => {
 
 // À l'élémentaire, la classe reçoit d'office toutes les matières du cycle, enseignées par son maître.
 function insertClass(yearId, c, schoolId) {
-  const r = db.prepare('INSERT INTO classes (year_id, name, level, cycle, scale, main_teacher_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(yearId, c.name, c.level, c.cycle, c.scale, c.mainTeacher);
+  const r = db.prepare('INSERT INTO classes (year_id, name, level, cycle, serie, scale, main_teacher_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(yearId, c.name, c.level, c.cycle, c.serie, c.scale, c.mainTeacher);
   const id = Number(r.lastInsertRowid);
   if (c.cycle === 'primaire') addAllSubjects({ id, cycle: c.cycle, main_teacher_id: c.mainTeacher }, schoolId);
   return id;
@@ -516,8 +517,8 @@ route('GET', '/api/classes/:id', ({ user, params }) => {
 route('PUT', '/api/classes/:id', ({ user, params, body }) => {
   const existing = loadClass(params.id, user);
   const c = classInput(body, user);
-  db.prepare('UPDATE classes SET name = ?, level = ?, cycle = ?, scale = ?, main_teacher_id = ? WHERE id = ?')
-    .run(c.name, c.level, c.cycle, c.scale, c.mainTeacher, existing.id);
+  db.prepare('UPDATE classes SET name = ?, level = ?, cycle = ?, serie = ?, scale = ?, main_teacher_id = ? WHERE id = ?')
+    .run(c.name, c.level, c.cycle, c.serie, c.scale, c.mainTeacher, existing.id);
   syncPrimaryTeacher(existing.id);
   return { ok: true };
 });
@@ -546,6 +547,12 @@ function teacherOfSchool(teacherId, user) {
   if (id && !db.prepare('SELECT 1 FROM users WHERE id = ? AND school_id = ?').get(id, user.school_id)) fail(400, 'Enseignant invalide.');
   return id;
 }
+/** Coefficient d'une matière dans la série d'une classe (null si non défini, 0 si non enseignée). */
+function serieCoefficient(subjectId, serie) {
+  if (!serie) return null;
+  return db.prepare('SELECT coefficient FROM serie_coefficients WHERE subject_id = ? AND serie = ?').get(subjectId, serie)?.coefficient ?? null;
+}
+
 const nextPosition = (classId) =>
   db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM class_subjects WHERE class_id = ?').get(classId).p;
 
@@ -566,8 +573,9 @@ route('POST', '/api/classes/:id/subjects', ({ user, params, body }) => {
   const c = loadClass(params.id, user);
   const s = subjectOfSchool(body.subject_id, user);
   if (db.prepare('SELECT 1 FROM class_subjects WHERE class_id = ? AND subject_id = ?').get(c.id, s.id)) fail(409, 'Cette matière est déjà dans la classe.');
+  const fromSerie = serieCoefficient(s.id, c.serie);
   const coef = body.coefficient === undefined || body.coefficient === ''
-    ? s.default_coefficient : num(body.coefficient, 'Le coefficient', { min: 0.5, max: 20 });
+    ? (fromSerie || s.default_coefficient) : num(body.coefficient, 'Le coefficient', { min: 0.5, max: 20 });
   const teacher = c.cycle === 'primaire' ? c.main_teacher_id : teacherOfSchool(body.teacher_id, user);
   const r = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)')
     .run(c.id, s.id, coef, teacher, nextPosition(c.id));
@@ -575,23 +583,69 @@ route('POST', '/api/classes/:id/subjects', ({ user, params, body }) => {
 });
 
 // Ajoute à une classe toutes les matières de son cycle (ou communes à tous les cycles) qu'elle n'a pas encore,
-// dans l'ordre où l'établissement les a créées. À appeler dans une transaction.
+// dans l'ordre où l'établissement les a créées. Au lycée, les coefficients de la série s'appliquent et les
+// matières non enseignées dans la série (coefficient 0) sont écartées. À appeler dans une transaction.
 function addAllSubjects(c, schoolId) {
-  const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND cycle IN ('tous', ?) AND id NOT IN
+  const cycles = subjectCyclesForClass(c.cycle);
+  const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND cycle IN (${cycles.map(() => '?').join(', ')}) AND id NOT IN
     (SELECT subject_id FROM class_subjects WHERE class_id = ?) ORDER BY id`)
-    .all(schoolId, subjectCycleForClass(c.cycle), c.id);
+    .all(schoolId, ...cycles, c.id);
   const insert = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)');
   let pos = nextPosition(c.id);
+  let added = 0;
   for (const s of subjects) {
+    const fromSerie = serieCoefficient(s.id, c.serie);
+    if (fromSerie === 0) continue;
     const teacher = c.cycle === 'primaire' ? c.main_teacher_id : onlySpecialist(s.id, schoolId);
-    insert.run(c.id, s.id, s.default_coefficient, teacher, pos++);
+    insert.run(c.id, s.id, fromSerie ?? s.default_coefficient, teacher, pos++);
+    added++;
   }
-  return subjects.length;
+  return added;
 }
 
 route('POST', '/api/classes/:id/subjects/all', ({ user, params }) => {
   const c = loadClass(params.id, user);
   return { added: tx(() => addAllSubjects(c, user.school_id)) };
+});
+
+// ---------------------------------------------------------------- coefficients par série (lycée)
+
+route('GET', '/api/series', ({ user }) => {
+  const year = activeYear(user.school_id);
+  const used = year ? db.prepare(`SELECT serie, COUNT(*) AS classes FROM classes
+    WHERE year_id = ? AND cycle = 'secondaire' AND serie <> '' GROUP BY serie`).all(year.id) : [];
+  const coefficients = db.prepare(`SELECT sc.subject_id, sc.serie, sc.coefficient FROM serie_coefficients sc
+    JOIN subjects s ON s.id = sc.subject_id WHERE s.school_id = ?`).all(user.school_id);
+  return { series: SERIES, used, coefficients };
+});
+
+// Coefficient d'une matière dans une série : un nombre, 0 (non enseignée) ou vide (coefficient par défaut).
+route('PUT', '/api/series/:serie/coefficients/:subjectId', ({ user, params, body }) => {
+  const serie = decodeURIComponent(params.serie);
+  if (!SERIES.includes(serie)) fail(400, 'Série inconnue.');
+  const s = subjectOfSchool(params.subjectId, user);
+  if (body.coefficient === '' || body.coefficient === null || body.coefficient === undefined) {
+    db.prepare('DELETE FROM serie_coefficients WHERE subject_id = ? AND serie = ?').run(s.id, serie);
+  } else {
+    const coef = num(body.coefficient, 'Le coefficient', { min: 0, max: 20 });
+    db.prepare(`INSERT INTO serie_coefficients (subject_id, serie, coefficient) VALUES (?, ?, ?)
+      ON CONFLICT (subject_id, serie) DO UPDATE SET coefficient = excluded.coefficient`).run(s.id, serie, coef);
+  }
+  return { ok: true };
+});
+
+// Applique les coefficients d'une série aux classes de cette série (année active).
+route('POST', '/api/series/:serie/apply', ({ user, params }) => {
+  const serie = decodeURIComponent(params.serie);
+  if (!SERIES.includes(serie)) fail(400, 'Série inconnue.');
+  const year = activeYear(user.school_id);
+  if (!year) fail(400, "Aucune année scolaire active.");
+  const r = db.prepare(`UPDATE class_subjects SET coefficient = (
+      SELECT sc.coefficient FROM serie_coefficients sc WHERE sc.subject_id = class_subjects.subject_id AND sc.serie = ?)
+    WHERE class_id IN (SELECT id FROM classes WHERE year_id = ? AND cycle = 'secondaire' AND serie = ?)
+      AND subject_id IN (SELECT subject_id FROM serie_coefficients WHERE serie = ? AND coefficient > 0)`)
+    .run(serie, year.id, serie, serie);
+  return { updated: Number(r.changes) };
 });
 
 route('PUT', '/api/class-subjects/:id', ({ user, params, body }) => {

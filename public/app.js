@@ -609,8 +609,28 @@ function renderDashboard(view, ctx) {
 
 // =============================================================== classes
 
-const SUBJECT_CYCLES = [['primaire', 'Élémentaire'], ['secondaire', 'Collège et lycée'], ['tous', 'Tous les cycles']];
-const CYCLES = [['moyen', 'Moyen (6e – 3e)'], ['secondaire', 'Secondaire (2nde – Tle)'], ['primaire', 'Élémentaire (CI – CM2)']];
+const SUBJECT_CYCLES = [['primaire', 'Élémentaire'], ['college', 'Collège'], ['lycee', 'Lycée'], ['secondaire', 'Collège et lycée'], ['tous', 'Tous les cycles']];
+const CYCLES = [['moyen', 'Collège (6e – 3e)'], ['secondaire', 'Lycée (2nde – Tle)'], ['primaire', 'Élémentaire (CI – CM2)']];
+// Séries du lycée : Seconde L ou S, puis Première et Terminale.
+const SERIES = ['L', 'S', 'L1', 'L2', "L'", 'S1', 'S2', 'S3', 'S4', 'S5', 'T1', 'T2', 'G'];
+const SUBJECT_CYCLES_FOR_CLASS = { primaire: ['primaire', 'tous'], moyen: ['college', 'secondaire', 'tous'], secondaire: ['lycee', 'secondaire', 'tous'] };
+/** La matière convient-elle au cycle de la classe (élémentaire, collège ou lycée) ? */
+const subjectFitsClass = (s, c) => (SUBJECT_CYCLES_FOR_CLASS[c.cycle] ?? []).includes(s.cycle);
+/** Cycles de matières proposés selon l'établissement. */
+const subjectCycleOptions = () => (state.me.school.school_type === 'mixte'
+  ? SUBJECT_CYCLES
+  : SUBJECT_CYCLES.filter(([k]) => !['primaire', 'tous'].includes(k)));
+/** Champ « Série », affiché seulement pour une classe de lycée. */
+const serieField = (value = '', cycle = '') => html`<label class="field serie-field" ${raw(cycle === 'secondaire' ? '' : 'hidden')}><span>Série</span>
+  <select name="serie"><option value="">— Aucune (ex. Seconde sans série) —</option>${SERIES.map((x) =>
+    html`<option value="${x}" ${raw(x === value ? 'selected' : '')}>${x}</option>`)}</select></label>`;
+/** Affiche le champ Série quand le cycle choisi est le lycée. */
+function bindSerieToggle(root) {
+  const cycle = $('[name=cycle]', root);
+  const serie = $('.serie-field', root);
+  if (!cycle || !serie) return;
+  cycle.addEventListener('change', () => { serie.hidden = cycle.value !== 'secondaire'; });
+}
 const PRIMARY_LEVELS = ['CI', 'CP', 'CE1', 'CE2', 'CM1', 'CM2'];
 
 // Noms des classes d'un niveau : « CI » s'il n'y en a qu'une, sinon « CI A », « CI B »…
@@ -685,7 +705,7 @@ async function viewClasses(view) {
     <div class="level-grid">${groups.map((g) => html`<section class="card level-card">
       <header><span class="level-code">${g.code}</span><h2>${g.name}</h2><span class="muted small">${plural(g.classes.length, 'classe')}</span></header>
       ${g.classes.map((c) => html`<div class="class-item" data-class="${c.id}" data-teacher="${c.main_teacher_id ? 1 : 0}" data-students="${c.students}" data-search="${`${c.name} ${c.level} ${c.main_teacher_name ?? ''}`.toLowerCase()}">
-        <div class="class-item-top"><a class="class-name" href="#/classes/${c.id}">${c.name}</a>
+        <div class="class-item-top"><a class="class-name" href="#/classes/${c.id}">${c.name}${c.serie && !c.name.split(/\s+/).includes(c.serie) ? html` <span class="badge">${c.serie}</span>` : ''}</a>
           <div class="row">
             <a class="btn sm" href="#/classes/${c.id}">${icon('open')}Ouvrir</a>
             <a class="btn sm" href="#/resultats/${c.id}">${icon('chart')}Résultats</a>
@@ -735,6 +755,7 @@ async function viewClasses(view) {
         ${field('Nom de la classe', 'name', { required: true, placeholder: isPrimarySchool() ? 'Ex. : CE1 B' : 'Ex. : 6e A' })}
         ${field('Niveau', 'level', { placeholder: 'Ex. : 6e, CM2, Tle S2' })}
         ${selectField('Cycle', 'cycle', CYCLES, isPrimarySchool() ? 'primaire' : 'moyen')}
+        ${serieField()}
         ${selectField('Barème', 'scale', [['', 'Automatique (sur 10 à l\'élémentaire, sur 20 sinon)'], ['20', 'Notes sur 20'], ['10', 'Notes sur 10']])}
         ${selectField('Maître / professeur principal', 'main_teacher_id', teacherOptions(users))}
       </div>`,
@@ -744,6 +765,10 @@ async function viewClasses(view) {
       go(`#/classes/${id}?onglet=${data.cycle === 'primaire' ? 'eleves' : 'matieres'}`);
     },
   });
+  // Le champ Série n'apparaît que pour le lycée.
+  const newClassBtn = $('#new-class', view);
+  const openNew = newClassBtn.onclick;
+  newClassBtn.onclick = () => { openNew(); bindSerieToggle($('dialog.dialog:last-of-type')); };
 
   if (bulk) {
     const existing = new Set(classes.map((c) => c.name));
@@ -802,7 +827,7 @@ async function viewClass(view, [id], query) {
   const canBulletins = isAdmin() || c.main_teacher_id === state.me.user.id;
   view.innerHTML = html`
     <div class="page-head">
-      <div><h1>${c.name}</h1><p class="muted">${c.level} · ${c.year_label} · notes sur ${c.scale}${c.main_teacher_name ? ` · ${c.cycle === 'primaire' ? 'Maître' : 'Prof. principal'} : ${c.main_teacher_name}` : ''}</p></div>
+      <div><h1>${c.name}</h1><p class="muted">${c.level}${c.serie ? ` · série ${c.serie}` : ''} · ${c.year_label} · notes sur ${c.scale}${c.main_teacher_name ? ` · ${c.cycle === 'primaire' ? 'Maître' : 'Prof. principal'} : ${c.main_teacher_name}` : ''}</p></div>
       <div class="row">
         <a class="btn" href="#/resultats/${c.id}">Résultats</a>
         ${canBulletins ? html`<a class="btn primary" href="#/bulletins/${c.id}?periode=${state.periodId}">Bulletins</a>` : ''}
@@ -959,7 +984,7 @@ function renderClassSubjects(el, c, users, subjects) {
   const admin = isAdmin();
   const primary = c.cycle === 'primaire';
   const available = subjects.filter((s) => !c.subjects.some((cs) => cs.subject_id === s.id)
-    && (s.cycle === 'tous' || s.cycle === (primary ? 'primaire' : 'secondaire')));
+    && subjectFitsClass(s, c));
   const totalCoef = c.subjects.reduce((s, x) => s + x.coefficient, 0);
   const missing = c.subjects.filter((s) => !s.teacher_id).length;
   const settingsLink = html`<a href="#/classes/${c.id}?onglet=parametres">paramètres de la classe</a>`;
@@ -1067,6 +1092,7 @@ function renderClassSettings(el, c, users) {
         ${field('Nom de la classe', 'name', { required: true, value: c.name })}
         ${field('Niveau', 'level', { value: c.level })}
         ${selectField('Cycle', 'cycle', CYCLES, c.cycle)}
+        ${serieField(c.serie, c.cycle)}
         ${selectField('Barème', 'scale', [['20', 'Notes sur 20'], ['10', 'Notes sur 10']], c.scale)}
         ${selectField('Professeur principal / maître', 'main_teacher_id', teacherOptions(users), c.main_teacher_id)}
       </div>
@@ -1076,6 +1102,7 @@ function renderClassSettings(el, c, users) {
     <div class="card"><h2>Zone sensible</h2>
       <p class="muted">Supprimer la classe efface ses matières, ses évaluations et ses notes, ainsi que les élèves qui n'appartiennent à aucune autre classe.</p>
       <button class="btn danger" id="del">Supprimer la classe</button></div>`.s;
+  bindSerieToggle($('#f', el));
   bindForm($('#f', el), async (data) => {
     await api('PUT', `/api/classes/${c.id}`, data);
     toast('Classe mise à jour.');
@@ -1646,7 +1673,7 @@ function bulletinPage(d, b) {
   const tick = (on) => html`<span class="box">${on ? '✓' : ''}</span>`;
   const distinctions = ["Tableau d'honneur", 'Encouragements', 'Félicitations', 'Avertissement'];
   return html`<section class="bulletin">
-    ${bulletinHeader(school, c.year_label, c.name)}
+    ${bulletinHeader(school, c.year_label, c.serie && !c.name.split(/\s+/).includes(c.serie) ? `${c.name} (série ${c.serie})` : c.name)}
 
     <div class="b-title"><h1>Bulletin de notes — ${period.name}</h1></div>
 
@@ -1746,12 +1773,76 @@ function bindSteppers(root) {
   });
 }
 
+/** Tableau des coefficients par série (lycée) : une colonne par série utilisée dans les classes. */
+function seriesCard(subjects, { used, coefficients }) {
+  const lyceeSubjects = subjects.filter((s) => ['lycee', 'secondaire', 'tous'].includes(s.cycle));
+  const withCoefs = [...new Set(coefficients.map((c) => c.serie))];
+  const cols = SERIES.filter((x) => used.some((u) => u.serie === x) || withCoefs.includes(x));
+  const coef = new Map(coefficients.map((c) => [`${c.subject_id}:${c.serie}`, c.coefficient]));
+  const classesOf = (x) => used.find((u) => u.serie === x)?.classes ?? 0;
+  return html`<section class="card form-card series-card">
+    <header class="with-action"><div><h2>Coefficients par série (lycée)</h2>
+      <p>Laissez vide pour garder le coefficient par défaut. Mettez 0 si la matière n'est pas enseignée dans la série.</p></div>
+      <label class="field add-serie"><span>Ajouter une série</span><select id="add-serie"><option value="">Choisir…</option>
+        ${SERIES.filter((x) => !cols.includes(x)).map((x) => html`<option value="${x}">${x}</option>`)}</select></label></header>
+    ${cols.length ? html`<div class="table-wrap flat"><table class="data series-table">
+      <thead><tr><th>Matière</th><th>Par défaut</th>${cols.map((x) => html`<th class="center">Série ${x}
+        <small>${classesOf(x) ? plural(classesOf(x), 'classe') : 'aucune classe'}</small></th>`)}</tr></thead>
+      <tbody>${lyceeSubjects.map((s) => html`<tr>
+        <td><strong>${s.name}</strong></td>
+        <td class="muted">${fmtNum(s.default_coefficient)}</td>
+        ${cols.map((x) => {
+          const v = coef.get(`${s.id}:${x}`);
+          return html`<td class="center"><input class="serie-coef ${v === 0 ? 'off' : ''}" data-subject="${s.id}" data-serie="${x}" inputmode="decimal"
+            value="${v === undefined ? '' : fmtNum(v)}" placeholder="${fmtNum(s.default_coefficient)}" aria-label="Coefficient de ${s.name} en série ${x}"></td>`;
+        })}
+      </tr>`)}</tbody>
+      <tfoot><tr><td colspan="2" class="muted small">Mettre à jour les classes existantes :</td>${cols.map((x) => html`<td class="center">
+        <button class="btn sm" data-apply="${x}" ${raw(classesOf(x) ? '' : 'disabled')}>Appliquer</button></td>`)}</tr></tfoot>
+    </table></div>`
+      : html`<p class="empty">Aucune série pour le moment. Indiquez la série de vos classes de lycée (Classes › une classe › Paramètres), ou ajoutez une série ci-dessus.</p>`}
+  </section>`;
+}
+
+function bindSeriesCard(view) {
+  $('#add-serie', view)?.addEventListener('change', async (e) => {
+    const x = e.target.value;
+    if (!x) return;
+    // Une série apparaît dès qu'elle a un coefficient : on reprend celui par défaut de la première matière du lycée.
+    const first = $('.series-table tbody tr input', view)?.dataset.subject
+      ?? (await api('GET', '/api/subjects')).find((s) => ['lycee', 'secondaire', 'tous'].includes(s.cycle))?.id;
+    if (!first) return toast("Ajoutez d'abord des matières du lycée.", 'error');
+    const s = (await api('GET', '/api/subjects')).find((y) => y.id === Number(first));
+    await api('PUT', `/api/series/${encodeURIComponent(x)}/coefficients/${first}`, { coefficient: s.default_coefficient });
+    render();
+  });
+  $$('.serie-coef', view).forEach((input) => input.addEventListener('change', async () => {
+    const value = input.value.trim().replace(',', '.');
+    try {
+      await api('PUT', `/api/series/${encodeURIComponent(input.dataset.serie)}/coefficients/${input.dataset.subject}`, { coefficient: value });
+      input.classList.toggle('off', value === '0');
+      toast('Coefficient enregistré.');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }));
+  $$('[data-apply]', view).forEach((b) => (b.onclick = async () => {
+    const x = b.dataset.apply;
+    if (!confirm(`Remplacer les coefficients des classes de la série ${x} par ceux de ce tableau ? Les matières sans coefficient de série gardent le leur.`)) return;
+    const r = await api('POST', `/api/series/${encodeURIComponent(x)}/apply`);
+    toast(`${r.updated} coefficient(s) mis à jour dans les classes de la série ${x}.`);
+  }));
+}
+
 async function viewSubjects(view) {
-  const [subjects, classes] = await Promise.all([api('GET', '/api/subjects'), api('GET', '/api/classes')]);
+  const [subjects, classes, series] = await Promise.all([
+    api('GET', '/api/subjects'), api('GET', '/api/classes'),
+    hasSecondaryCycle() ? api('GET', '/api/series') : null,
+  ]);
   // Les cycles ne servent qu'aux établissements qui ont à la fois l'élémentaire et le collège-lycée.
-  const mixed = state.me.school.school_type === 'mixte';
-  const cycleField = (value = 'tous') => (mixed ? selectField('Cycle', 'cycle', SUBJECT_CYCLES, value) : '');
-  const order = { primaire: 0, secondaire: 1, tous: 2 };
+  const mixed = hasSecondaryCycle(); // collège et lycée (avec ou sans élémentaire) : les cycles comptent
+  const cycleField = (value = 'secondaire') => (mixed ? selectField('Cycle', 'cycle', subjectCycleOptions(), value) : '');
+  const order = { primaire: 0, college: 1, secondaire: 2, lycee: 3, tous: 4 };
   const rows = mixed ? [...subjects].sort((a, b) => order[a.cycle] - order[b.cycle] || a.name.localeCompare(b.name, 'fr')) : subjects;
   const segments = Math.min(6, Math.max(3, Math.ceil(Math.max(0, ...subjects.map((s) => s.default_coefficient)))));
   const coefView = (c) => html`<span class="coef"><span class="coef-num">${fmtNum(c)}</span>
@@ -1766,7 +1857,7 @@ async function viewSubjects(view) {
 
     <div class="notice info wide"><span class="notice-icon">${icon('info')}</span><div>
       <strong>Comment fonctionne le coefficient ?</strong>
-      <p>Le coefficient par défaut est proposé quand on ajoute la matière à une classe. Il reste modifiable classe par classe.${mixed ? ' Le cycle indique à quelles classes la matière est proposée : élémentaire, collège et lycée, ou tous.' : ''}</p>
+      <p>Le coefficient par défaut est proposé quand on ajoute la matière à une classe. Il reste modifiable classe par classe.${mixed ? ' Le cycle indique à quelles classes la matière est proposée (collège, lycée…). Au lycée, chaque série peut avoir ses propres coefficients.' : ''}</p>
     </div></div>
 
     <div>
@@ -1788,9 +1879,11 @@ async function viewSubjects(view) {
           : html`<p class="empty">Aucune matière pour le moment.</p>`}
       </section>
 
-    </div>`.s;
+    </div>
+    ${series ? seriesCard(subjects, series) : ''}`.s;
 
   bindSteppers(view);
+  if (series) bindSeriesCard(view);
   $('#subject-search', view)?.addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
     let shown = 0;

@@ -12,14 +12,27 @@ export const DEFAULT_SUBJECTS = {
   ],
 };
 
-/** Cycle d'une matière : « primaire », « secondaire » (collège et lycée) ou « tous ». */
+// Matières enseignées seulement au lycée.
+const LYCEE_ONLY = ['Philosophie'];
+
+/** Cycle d'une matière : « primaire », « secondaire » (collège et lycée), « lycee » ou « tous ». */
 export function defaultSubjectCycle(name) {
   const inPrimary = DEFAULT_SUBJECTS.primaire.some(([n]) => n === name);
   const inSecondary = DEFAULT_SUBJECTS.secondaire.some(([n]) => n === name);
   if (inPrimary && !inSecondary) return 'primaire';
-  if (inSecondary && !inPrimary) return 'secondaire';
+  if (inSecondary && !inPrimary) return LYCEE_ONLY.includes(name) ? 'lycee' : 'secondaire';
   return 'tous';
 }
 
-/** Cycle des matières qui conviennent à une classe (le moyen et le secondaire partagent les leurs). */
-export const subjectCycleForClass = (classCycle) => (classCycle === 'primaire' ? 'primaire' : 'secondaire');
+/** Cycles de matières possibles. */
+export const SUBJECT_CYCLES = ['primaire', 'college', 'lycee', 'secondaire', 'tous'];
+
+/** Cycles des matières qui conviennent à une classe, selon son cycle (primaire, moyen = collège, secondaire = lycée). */
+export function subjectCyclesForClass(classCycle) {
+  if (classCycle === 'primaire') return ['primaire', 'tous'];
+  if (classCycle === 'moyen') return ['college', 'secondaire', 'tous'];
+  return ['lycee', 'secondaire', 'tous'];
+}
+
+/** Séries du lycée au Sénégal (Seconde L et S, puis Première et Terminale). */
+export const SERIES = ['L', 'S', 'L1', 'L2', "L'", 'S1', 'S2', 'S3', 'S4', 'S5', 'T1', 'T2', 'G'];

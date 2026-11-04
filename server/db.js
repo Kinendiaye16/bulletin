@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS subjects (
   school_id           INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   name                TEXT NOT NULL,
   default_coefficient REAL NOT NULL DEFAULT 1,
-  cycle               TEXT NOT NULL DEFAULT 'tous', -- primaire, secondaire (collège et lycée) ou tous
+  cycle               TEXT NOT NULL DEFAULT 'tous', -- primaire, college, lycee, secondaire (collège et lycée) ou tous
   UNIQUE (school_id, name)
 );
 
@@ -161,6 +161,23 @@ if (!subjectColumns.includes('cycle')) {
   db.exec("ALTER TABLE subjects ADD COLUMN cycle TEXT NOT NULL DEFAULT 'tous'");
   const update = db.prepare('UPDATE subjects SET cycle = ? WHERE id = ?');
   for (const s of db.prepare('SELECT id, name FROM subjects').all()) update.run(defaultSubjectCycle(s.name), s.id);
+}
+// Série des classes du lycée (L1, L2, S1, S2…)
+const classColumns = db.prepare('PRAGMA table_info(classes)').all().map((c) => c.name);
+if (!classColumns.includes('serie')) {
+  db.exec("ALTER TABLE classes ADD COLUMN serie TEXT NOT NULL DEFAULT ''");
+}
+// Coefficient d'une matière dans une série ; 0 = matière non enseignée dans la série.
+db.exec(`CREATE TABLE IF NOT EXISTS serie_coefficients (
+  subject_id  INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  serie       TEXT NOT NULL,
+  coefficient REAL NOT NULL,
+  PRIMARY KEY (subject_id, serie)
+)`);
+// Version 1 : les cycles « Collège » et « Lycée » sont séparés ; la philosophie ne s'enseigne qu'au lycée.
+if (db.prepare('PRAGMA user_version').get().user_version < 1) {
+  db.exec("UPDATE subjects SET cycle = 'lycee' WHERE cycle = 'secondaire' AND name = 'Philosophie'");
+  db.exec('PRAGMA user_version = 1');
 }
 
 export function tx(fn) {
