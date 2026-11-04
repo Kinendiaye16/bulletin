@@ -54,6 +54,11 @@ const ICONS = {
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
   printer: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
   tick: '<path d="M20 6 9 17l-5-5"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
   userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M8 17v-4"/><path d="M13 17V9"/><path d="M18 17v-7"/>',
@@ -1585,7 +1590,9 @@ function subjectChecks(subjects, selected = []) {
   </fieldset>`;
 }
 
-async function viewTeachers(view) {
+const plural = (n, one, many = `${one}s`) => `${n} ${n > 1 ? many : one}`;
+
+async function viewTeachers(view, _params, query) {
   // Au collège et au lycée, chaque professeur a sa ou ses matières ; à l'élémentaire, un maître par classe.
   const hasSecondary = state.me.school.school_type !== 'primaire';
   const [users, allSubjects, classes] = await Promise.all([
@@ -1595,49 +1602,147 @@ async function viewTeachers(view) {
   ]);
   const subjects = allSubjects.filter((s) => s.cycle !== 'primaire'); // les maîtres enseignent tout
   const primaryClasses = classes.filter((c) => c.cycle === 'primaire');
-  const classOptions = [['', primaryClasses.length ? '— Choisir sa classe —' : '— Aucune classe créée —'],
-    ...primaryClasses.map((c) => [c.id, c.main_teacher_name ? `${c.name} (actuellement : ${c.main_teacher_name})` : c.name])];
+  const withoutTeacher = primaryClasses.filter((c) => !c.main_teacher_id);
+  const classOptions = [
+    ['', !primaryClasses.length ? '— Aucune classe créée —' : withoutTeacher.length ? 'Choisir une classe sans maître' : '— Aucune —'],
+    ...withoutTeacher.map((c) => [c.id, c.name]),
+    ...primaryClasses.filter((c) => c.main_teacher_id).map((c) => [c.id, `${c.name} (actuellement : ${c.main_teacher_name})`]),
+  ];
   const subjectName = new Map(subjects.map((s) => [s.id, s.name]));
   const withSubjects = (data, form) => ({ ...data, subject_ids: new FormData(form).getAll('subject_ids') });
+  const admins = users.filter((u) => u.role === 'admin').length;
+  const teachers = users.length - admins;
+  const tab = ['enseignant', 'admin'].includes(query.get?.('role')) ? query.get('role') : 'tous';
+
+  const roleBadge = (u) => (u.role === 'admin'
+    ? html`<span class="role-badge admin">${icon('shield')}Administrateur</span>`
+    : html`<span class="role-badge">${icon('teacher')}Enseignant</span>`);
+  const classesCell = (u) => {
+    if (u.role === 'admin' && !u.main_of && !u.classes_taught) {
+      return html`<span class="cell-label">Classes</span><span class="muted">Toutes les classes</span>`;
+    }
+    const main = u.main_of ? u.main_of.split(',') : [];
+    // Un maître enseigne déjà toutes les matières de sa classe : inutile de la répéter.
+    const others = (u.classes_taught ? u.classes_taught.split(',') : []).filter((n) => !main.includes(n));
+    const subjectsTaught = u.subject_ids.map((id) => subjectName.get(id)).filter(Boolean);
+    return html`
+      ${main.length ? html`<span class="cell-label">${hasSecondary ? 'Maître / prof. principal' : 'Maître de la classe'}</span>
+        <span class="class-chips">${main.map((n) => html`<span class="class-chip">${icon('classes')}${n}</span>`)}</span>` : ''}
+      ${others.length ? html`<span class="cell-label">Enseigne en</span><span class="class-chips">${others.map((n) => html`<span class="class-chip">${icon('classes')}${n}</span>`)}</span>` : ''}
+      ${hasSecondary && subjectsTaught.length ? html`<span class="cell-label">Matières</span><span class="small">${subjectsTaught.join(', ')}</span>` : ''}
+      ${!main.length && !others.length && !(hasSecondary && subjectsTaught.length)
+        ? html`<span class="cell-label">Classe</span><span class="muted">Aucune classe pour l'instant</span>` : ''}`;
+  };
 
   view.innerHTML = html`
-    <div class="page-head"><div><h1>Équipe</h1>
-      <p class="muted">${hasSecondary
-        ? "Au collège et au lycée, indiquez la ou les matières de chaque professeur : ils seront proposés en priorité quand vous affecterez un professeur à chaque matière d'une classe."
-        : "À l'élémentaire, chaque classe a un seul maître, qui enseigne toutes les matières. Ajoutez chaque enseignant avec sa classe : il pourra se connecter avec son e-mail et saisir les compositions de sa classe."}
-      ${state.me.school.school_type === 'mixte' ? " À l'élémentaire, le maître de la classe enseigne toutes les matières." : ''}</p></div></div>
-    <details class="panel" ${raw(users.length < 2 ? 'open' : '')}><summary>+ Ajouter un membre</summary>
-      <form id="f" class="stack"><div class="form-grid">
-        ${field('Prénom et nom', 'name', { required: true })}
-        ${field('Adresse e-mail (identifiant)', 'email', { type: 'email', required: true })}
-        ${field('Téléphone', 'phone', { type: 'tel', inputmode: 'tel' })}
-        ${selectField('Rôle', 'role', [['enseignant', hasSecondary ? 'Enseignant / professeur' : 'Maître / maîtresse'], ['admin', 'Administrateur (direction ou secrétariat)']])}
-        ${field('Mot de passe provisoire', 'password', { required: true, value: tempPassword() })}
-        ${hasPrimary() ? selectField(hasSecondary ? 'Maître de la classe (élémentaire)' : 'Classe dont il/elle est le maître', 'class_id', classOptions) : ''}
-      </div>
-      ${hasSecondary ? subjectChecks(subjects) : ''}
-      <p class="small muted">Communiquez ce mot de passe à la personne ; vous pourrez le réinitialiser à tout moment.</p>
-      <p class="form-error" hidden></p><div><button class="btn primary" type="submit">Ajouter</button></div></form>
-    </details>
-    <div class="table-wrap"><table class="data">
-      <thead><tr><th>Nom</th>${hasSecondary ? html`<th>Matière(s)</th>` : ''}<th>Classes</th><th>Contact</th><th>Rôle</th><th></th></tr></thead>
-      <tbody>${users.map((u) => html`<tr>
-        <td><strong>${u.name}</strong></td>
-        ${hasSecondary ? html`<td class="small">${u.subject_ids.map((id) => subjectName.get(id)).filter(Boolean).join(', ') || html`<span class="muted">—</span>`}</td>` : ''}
-        <td class="small">${u.main_of ? html`<div>${hasSecondary ? 'Prof. principal / maître' : 'Maître de la classe'} : <strong>${u.main_of.split(',').join(', ')}</strong></div>` : ''}
-          ${(() => {
-            // Un maître enseigne déjà toutes les matières de sa classe : inutile de la répéter.
-            const others = (u.classes_taught ? u.classes_taught.split(',') : []).filter((n) => !(u.main_of ?? '').split(',').includes(n));
-            return others.length ? html`<div>Enseigne en : ${others.join(', ')}</div>` : '';
-          })()}
-          ${!u.main_of && !u.classes_taught ? html`<span class="muted">—</span>` : ''}</td>
-        <td class="small">${u.email}<br>${u.phone}</td>
-        <td><span class="badge ${u.role === 'admin' ? 'green' : ''}">${u.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span></td>
-        <td class="actions"><button class="btn sm" data-edit="${u.id}">Modifier</button>
-          ${u.id !== state.me.user.id ? html`<button class="btn sm danger" data-del="${u.id}">Supprimer</button>` : ''}</td>
-      </tr>`)}</tbody></table></div>`.s;
-  bindForm($('#f'), async (data, form) => {
-    await api('POST', '/api/users', withSubjects(data, form));
+    <div class="page-head">
+      <div class="title-with-icon"><span class="title-icon">${icon('team')}</span>
+        <div><h1>Équipe</h1><p class="muted">${plural(users.length, 'membre')} · ${plural(admins, 'administrateur')} · ${plural(teachers, 'enseignant')}</p></div></div>
+      <button class="btn primary lg" type="button" id="go-add">${icon('userPlus')}Ajouter un membre</button>
+    </div>
+
+    <div class="notice-grid">
+      <div class="notice info"><span class="notice-icon">${icon('info')}</span><div>
+        <strong>${hasSecondary && !hasPrimary() ? 'Un professeur par matière' : 'Un maître par classe'}</strong>
+        <p>${hasSecondary && !hasPrimary()
+          ? "Au collège et au lycée, indiquez la ou les matières de chaque professeur : ils seront proposés en priorité quand vous affecterez un professeur à chaque matière d'une classe."
+          : `À l'élémentaire, chaque maître enseigne toutes les matières de sa classe. Il se connecte avec son e-mail et saisit les compositions de sa classe.${hasSecondary ? ' Au collège et au lycée, chaque professeur a sa ou ses matières.' : ''}`}</p>
+      </div></div>
+      ${withoutTeacher.length ? html`<div class="notice warn"><span class="notice-icon">${icon('alert')}</span><div>
+        <strong>${withoutTeacher.length > 1 ? `${withoutTeacher.length} classes sans maître` : '1 classe sans maître'}</strong>
+        <p>Ajoutez un enseignant pour ${withoutTeacher.length > 1 ? 'chacune' : 'cette classe'} afin de pouvoir saisir ${withoutTeacher.length > 1 ? 'leurs' : 'ses'} compositions :
+          ${withoutTeacher.slice(0, 8).map((c) => c.name).join(', ')}${withoutTeacher.length > 8 ? '…' : ''}.</p>
+        <a href="#/classes">Affecter des enseignants</a>
+      </div></div>` : ''}
+    </div>
+
+    <div class="team-grid">
+      <section class="card team-list">
+        <div class="team-toolbar">
+          <div class="seg" role="tablist">
+            ${[['tous', 'Tous', users.length], ['enseignant', 'Enseignants', teachers], ['admin', 'Administrateurs', admins]].map(([k, label, n]) =>
+              html`<button type="button" role="tab" data-tab="${k}" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}">${label} · ${n}</button>`)}
+          </div>
+          <label class="search">${icon('search')}<input type="search" id="member-search" placeholder="Rechercher un membre" aria-label="Rechercher un membre"></label>
+        </div>
+        <div class="members">${users.map((u) => html`<div class="member" data-role="${u.role}" data-search="${`${u.name} ${u.email} ${u.phone} ${u.main_of ?? ''}`.toLowerCase()}">
+          <div class="member-id">
+            <span class="avatar lg ${u.role === 'admin' ? 'dark' : ''}">${initials(u.name)}</span>
+            <div><strong>${u.name}${u.id === state.me.user.id ? html` <span class="muted small">(vous)</span>` : ''}</strong>${roleBadge(u)}</div>
+          </div>
+          <div class="member-classes">${classesCell(u)}</div>
+          <div class="member-contact">
+            <span>${icon('mail')}${u.email}</span>
+            ${u.phone ? html`<span>${icon('phone')}${u.phone}</span>` : ''}
+          </div>
+          <div class="member-actions">
+            <button class="btn" data-edit="${u.id}">${icon('notes')}Modifier</button>
+            ${u.id !== state.me.user.id ? html`<button class="btn icon-only danger" data-del="${u.id}" title="Supprimer" aria-label="Supprimer ${u.name}">${icon('trash')}</button>` : ''}
+          </div>
+        </div>`)}</div>
+        <p class="empty" id="no-member" hidden>Aucun membre ne correspond.</p>
+      </section>
+
+      <aside class="card form-card add-member" id="add-member">
+        <header><h2>Ajouter un membre</h2><p>Communiquez-lui son e-mail et son mot de passe provisoire.</p></header>
+        <form id="f" class="form-card-body">
+          <div class="field"><span>Rôle</span>
+            <div class="role-pick">
+              <label><input type="radio" name="role" value="enseignant" checked><span>Enseignant</span></label>
+              <label><input type="radio" name="role" value="admin"><span>Administrateur</span></label>
+            </div>
+          </div>
+          ${field('Prénom et nom', 'name', { required: true, placeholder: 'Ex. : Fatou Sarr' })}
+          ${field('E-mail de connexion', 'email', { type: 'email', required: true, placeholder: 'nom@exemple.com' })}
+          ${iconField('Téléphone', 'phone', { prefix: '+221', type: 'tel', inputmode: 'tel', placeholder: '77 000 00 00' })}
+          <div class="teacher-only">
+            ${hasPrimary() ? selectField(hasSecondary ? 'Classe dont il est le maître (élémentaire)' : 'Classe dont il est le maître', 'class_id', classOptions) : ''}
+            ${hasSecondary ? subjectChecks(subjects) : ''}
+          </div>
+          ${field('Mot de passe provisoire', 'password', { required: true, value: tempPassword() })}
+          <p class="form-error" hidden></p>
+          <button class="btn primary lg block" type="submit">${icon('plus')}Ajouter à l'équipe</button>
+        </form>
+      </aside>
+    </div>`.s;
+
+  // Filtre par onglet et recherche
+  let current = tab;
+  const applyFilter = () => {
+    const q = $('#member-search', view).value.trim().toLowerCase();
+    let shown = 0;
+    $$('.member', view).forEach((m) => {
+      const ok = (current === 'tous' || m.dataset.role === current) && (!q || m.dataset.search.includes(q));
+      m.hidden = !ok;
+      shown += ok;
+    });
+    $('#no-member', view).hidden = shown > 0;
+  };
+  $$('[data-tab]', view).forEach((b) => (b.onclick = () => {
+    current = b.dataset.tab;
+    $$('[data-tab]', view).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', x === b); });
+    applyFilter();
+  }));
+  $('#member-search', view).addEventListener('input', applyFilter);
+  applyFilter();
+
+  const form = $('#f', view);
+  // Les champs propres aux enseignants (classe, matières) disparaissent pour un administrateur.
+  const syncRole = () => {
+    const teacher = form.elements.role.value === 'enseignant';
+    $('.teacher-only', form).hidden = !teacher;
+    $$('.role-pick label', form).forEach((l) => l.classList.toggle('on', $('input', l).checked));
+  };
+  $$('input[name=role]', form).forEach((r) => r.addEventListener('change', syncRole));
+  syncRole();
+  $('#go-add', view).onclick = () => {
+    $('#add-member', view).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('[name=name]', form).focus({ preventScroll: true });
+  };
+
+  bindForm(form, async (data) => {
+    if (data.role === 'admin') delete data.class_id;
+    await api('POST', '/api/users', data.role === 'admin' ? data : withSubjects(data, form));
     toast('Membre ajouté.');
     render();
   });
@@ -1646,11 +1751,11 @@ async function viewTeachers(view) {
     openDialog({
       title: u.name,
       body: html`${field('Prénom et nom', 'name', { required: true, value: u.name })}
-        ${field('Téléphone', 'phone', { type: 'tel', value: u.phone })}
-        ${hasSecondary ? subjectChecks(subjects, u.subject_ids) : ''}
+        ${iconField('Téléphone', 'phone', { prefix: '+221', type: 'tel', value: u.phone })}
+        ${hasSecondary && u.role === 'enseignant' ? subjectChecks(subjects, u.subject_ids) : ''}
         ${field('Nouveau mot de passe (laisser vide pour ne pas changer)', 'password', { autocomplete: 'new-password' })}`,
-      onSubmit: async (data, form) => {
-        await api('PUT', `/api/users/${u.id}`, hasSecondary ? withSubjects(data, form) : data);
+      onSubmit: async (data, f) => {
+        await api('PUT', `/api/users/${u.id}`, hasSecondary && u.role === 'enseignant' ? withSubjects(data, f) : data);
         toast('Enregistré.');
         render();
       },

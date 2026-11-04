@@ -465,6 +465,71 @@ table.grades td.computed { background: var(--surface-2); font-weight: 600; }
   .preview-frame { padding: 12px; }
 }
 
+/* ---------- page Équipe */
+.notice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; margin-bottom: 24px; }
+.notice { display: flex; gap: 16px; padding: 22px 24px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); }
+.notice strong { display: block; font-size: 1.02rem; margin-bottom: 4px; }
+.notice p { margin: 0; color: var(--muted); }
+.notice a { display: inline-block; margin-top: 10px; font-weight: 700; }
+.notice-icon { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; flex: none; }
+.notice.info .notice-icon { background: #e8eefc; color: #2f5bd3; }
+.notice.warn { background: #fdf6e7; border-color: #f0dcae; }
+.notice.warn .notice-icon { background: #fbe9c2; color: #9a5b00; }
+.notice.warn strong, .notice.warn a { color: #8a4f00; }
+.notice.warn p { color: #6b4a14; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .notice.info .notice-icon { background: #1d2540; color: #8aa8ff; }
+  :root:not([data-theme="light"]) .notice.warn { background: #2e2615; border-color: #5a4720; }
+  :root:not([data-theme="light"]) .notice.warn .notice-icon { background: #4a3b17; color: #f2c94c; }
+  :root:not([data-theme="light"]) .notice.warn strong, :root:not([data-theme="light"]) .notice.warn a { color: #f2c94c; }
+  :root:not([data-theme="light"]) .notice.warn p { color: #e0cfa3; }
+}
+
+.team-grid { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 28px; align-items: start; }
+.team-list { padding: 0; border-radius: 18px; overflow: hidden; margin-bottom: 0; }
+.team-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; padding: 20px 26px; border-bottom: 1px solid var(--border); }
+.seg { display: inline-flex; gap: 4px; padding: 5px; border-radius: 12px; background: var(--surface-2); flex-wrap: wrap; }
+.seg button { border: 0; background: transparent; padding: 9px 16px; border-radius: 9px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(16, 32, 20, 0.12); }
+.team-toolbar .search { min-width: 260px; }
+.member { display: grid; grid-template-columns: minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(200px, 1.2fr); gap: 10px 24px; align-items: start; padding: 24px 26px; border-bottom: 1px solid var(--border); }
+.member:last-of-type { border-bottom: 0; }
+.member-id { display: flex; gap: 14px; align-items: center; }
+.member-id strong { display: block; font-size: 1.05rem; margin-bottom: 6px; }
+.member .avatar.lg { width: 52px; height: 52px; font-size: 0.95rem; background: var(--primary-soft); color: var(--primary-strong); }
+.member .avatar.lg.dark { background: #123d2b; color: #fff; }
+.role-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; background: var(--primary-soft); color: var(--primary-strong); }
+.role-badge.admin { background: #123d2b; color: #fff; }
+.role-badge .icon { width: 14px; height: 14px; }
+.member-classes { display: grid; gap: 6px; justify-items: start; }
+.cell-label { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.class-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.class-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--primary-soft); background: color-mix(in srgb, var(--primary-soft) 50%, var(--surface)); color: var(--primary-strong); font-weight: 700; font-size: 0.88rem; }
+.class-chip .icon { width: 15px; height: 15px; }
+.member-contact { display: grid; gap: 8px; font-size: 0.93rem; min-width: 0; }
+.member-contact span { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
+.member-contact .icon { width: 17px; height: 17px; color: var(--muted); }
+.member-actions { grid-column: 3; display: flex; gap: 8px; justify-content: flex-end; }
+.btn.icon-only { padding: 9px 11px; }
+.btn.icon-only .icon { width: 18px; height: 18px; }
+.add-member { position: sticky; top: 90px; }
+.role-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.role-pick label { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-weight: 600; color: var(--text); }
+.role-pick label.on { border: 1.5px solid var(--primary); background: var(--primary-soft); color: var(--primary-strong); }
+.role-pick input { width: auto; accent-color: var(--primary); margin: 0; }
+.teacher-only { display: grid; gap: 18px; }
+
+@media (max-width: 1200px) {
+  .team-grid { grid-template-columns: 1fr; }
+  .add-member { position: static; }
+}
+@media (max-width: 760px) {
+  .member { grid-template-columns: 1fr; padding: 18px; }
+  .member-actions { grid-column: 1; justify-content: flex-start; }
+  .team-toolbar { padding: 16px 18px; }
+  .team-toolbar .search { min-width: 0; width: 100%; }
+}
+
 /* ---------- pages publiques */
 .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
 .auth .card { width: 100%; max-width: 520px; padding: 28px; }
