@@ -11,12 +11,14 @@ function mean(values) {
  * Moyenne d'une matière pour une période :
  * (moyenne des devoirs + w × note de composition) / (1 + w).
  * S'il n'y a que des devoirs ou que la composition, c'est celle-ci qui compte.
+ * À l'élémentaire (compositionsOnly), seule la moyenne des compositions compte.
  */
-export function subjectAverage(devoirs, compositions, compoWeight = 1) {
+export function subjectAverage(devoirs, compositions, compoWeight = 1, compositionsOnly = false) {
   const md = mean(devoirs);
   const mc = mean(compositions);
   let avg;
-  if (md !== null && mc !== null) avg = (md + compoWeight * mc) / (1 + compoWeight);
+  if (compositionsOnly) avg = mc;
+  else if (md !== null && mc !== null) avg = (md + compoWeight * mc) / (1 + compoWeight);
   else avg = md ?? mc;
   return {
     devoirs: md === null ? null : round2(md),
@@ -78,7 +80,7 @@ export function distinction(value, scale = 20) {
  * evaluations : [{ id, class_subject_id, type }]
  * grades : [{ evaluation_id, student_id, value, absent }]
  */
-export function computeClassResults({ scale = 20, compoWeight = 1, subjects, students, evaluations, grades }) {
+export function computeClassResults({ scale = 20, compoWeight = 1, compositionsOnly = false, subjects, students, evaluations, grades }) {
   const evalById = new Map(evaluations.map((e) => [e.id, e]));
   const cells = new Map();
   for (const g of grades) {
@@ -98,7 +100,7 @@ export function computeClassResults({ scale = 20, compoWeight = 1, subjects, stu
     for (const sub of subjects) {
       const cell = cells.get(`${st.id}:${sub.id}`);
       const r = cell
-        ? subjectAverage(cell.devoirs, cell.compositions, compoWeight)
+        ? subjectAverage(cell.devoirs, cell.compositions, compoWeight, compositionsOnly)
         : { devoirs: null, composition: null, average: null };
       r.weighted = r.average === null ? null : round2(r.average * sub.coefficient);
       r.appreciation = appreciation(r.average, scale);

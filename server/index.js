@@ -155,6 +155,7 @@ function classResults(c, periodId) {
   return computeClassResults({
     scale: c.scale,
     compoWeight: school.compo_weight,
+    compositionsOnly: c.cycle === 'primaire', // à l'élémentaire, seules les compositions comptent
     subjects: classSubjectsOf(c.id),
     students: studentsOf(c.id),
     evaluations: db.prepare(`
@@ -674,7 +675,7 @@ route('GET', '/api/class-subjects/:id/grades', ({ user, params, query }) => {
     WHERE e.class_subject_id = ? AND e.period_id = ?`).all(cs.id, period.id);
   return {
     classSubject: cs,
-    class: { id: c.id, name: c.name, scale: c.scale, year_label: c.year_label },
+    class: { id: c.id, name: c.name, scale: c.scale, cycle: c.cycle, year_label: c.year_label },
     period,
     periods: periodsOf(c.year_id),
     compoWeight: schoolOf(c.school_id).compo_weight,

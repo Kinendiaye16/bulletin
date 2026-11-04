@@ -18,6 +18,11 @@ test('moyenne matière : devoirs seuls ou composition seule', () => {
   assert.equal(subjectAverage([], []).average, null);
 });
 
+test('moyenne matière à l\'élémentaire : seules les compositions comptent', () => {
+  assert.equal(subjectAverage([2, 3], [8, 9], 1, true).average, 8.5);
+  assert.equal(subjectAverage([7], [], 1, true).average, null);
+});
+
 test('rangs avec ex æquo', () => {
   const r = computeRanks([
     { id: 1, value: 12 }, { id: 2, value: 15 }, { id: 3, value: 12 }, { id: 4, value: 9 }, { id: 5, value: null },

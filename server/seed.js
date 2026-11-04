@@ -92,8 +92,11 @@ tx(() => {
     ).run(classId, subjectId(name), coef, teacher === null ? null : teacherIds[teacher], i + 1).lastInsertRowid));
 
     const students = addStudents(schoolId, classId, def.size, def.level, () => `26${String(matricule++).padStart(4, '0')}`);
-    // Premier semestre complet (2 devoirs + composition), second semestre commencé (1 devoir).
-    addGrades(css, students, def.scale, [[periods[0], ['Devoir 1', 'Devoir 2', 'Composition']], [periods[1], ['Devoir 1']]]);
+    // Collège : premier semestre complet (2 devoirs + composition), second commencé (1 devoir).
+    // Élémentaire : seules les compositions comptent.
+    addGrades(css, students, def.scale, def.cycle === 'primaire'
+      ? [[periods[0], ['Composition 1', 'Composition 2']]]
+      : [[periods[0], ['Devoir 1', 'Devoir 2', 'Composition']], [periods[1], ['Devoir 1']]]);
   }
 });
 

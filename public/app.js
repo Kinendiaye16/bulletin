@@ -983,14 +983,16 @@ async function viewGradeEntry(view, [csId]) {
   const devoirs = evaluations.filter((e) => e.type === 'devoir');
   const compos = evaluations.filter((e) => e.type === 'composition');
   const ordered = [...devoirs, ...compos];
-  const formula = compoWeight === 1 ? '(moy. devoirs + compo.) ÷ 2' : `(moy. devoirs + ${fmtNum(compoWeight)} × compo.) ÷ ${fmtNum(1 + compoWeight)}`;
+  const compositionsOnly = d.class.cycle === 'primaire'; // à l'élémentaire, seules les compositions comptent
+  const formula = compositionsOnly ? 'moyenne des compositions'
+    : compoWeight === 1 ? '(moy. devoirs + compo.) ÷ 2' : `(moy. devoirs + ${fmtNum(compoWeight)} × compo.) ÷ ${fmtNum(1 + compoWeight)}`;
 
   view.innerHTML = html`
     <div class="page-head">
       <div><h1>${cs.subject_name} — ${d.class.name}</h1>
         <p class="muted">${d.period.name} · notes sur ${scale} · coef. ${fmtNum(cs.coefficient)}${cs.teacher_name ? ` · ${cs.teacher_name}` : ''}</p></div>
       <div class="row">
-        <button class="btn" data-new="devoir">+ Devoir</button>
+        ${compositionsOnly ? '' : html`<button class="btn" data-new="devoir">+ Devoir</button>`}
         <button class="btn" data-new="composition">+ Composition</button>
       </div>
     </div>
@@ -1016,7 +1018,7 @@ async function viewGradeEntry(view, [csId]) {
   const recompute = (tr) => {
     const collect = (list) => list.map((e) => parseGrade($(`input[data-eval="${e.id}"]`, tr).value, scale))
       .filter((g) => g.value !== undefined).map((g) => g.value);
-    const r = subjectAverage(collect(devoirs), collect(compos), compoWeight);
+    const r = subjectAverage(collect(devoirs), collect(compos), compoWeight, compositionsOnly);
     $('[data-out=devoirs]', tr).textContent = fmt(r.devoirs);
     $('[data-out=composition]', tr).textContent = fmt(r.composition);
     $('[data-out=average]', tr).textContent = fmt(r.average);
@@ -1215,8 +1217,8 @@ function bulletinPage(d, b) {
   const s = b.student;
   const scale = c.scale;
   const primary = c.cycle === 'primaire'; // un seul maître : pas de colonne « Professeur »
-  // Classe notée uniquement par compositions (cas courant à l'élémentaire) : pas de colonnes devoirs / compo.
-  const withDevoirs = d.hasDevoirs ??= d.bulletins.some((x) => Object.values(x.student.subjects).some((r) => r.devoirs !== null));
+  // Élémentaire (seules les compositions comptent) ou classe sans devoirs : pas de colonnes devoirs / compo.
+  const withDevoirs = !primary && (d.hasDevoirs ??= d.bulletins.some((x) => Object.values(x.student.subjects).some((r) => r.devoirs !== null)));
   const tick = (on) => html`<span class="box">${on ? '✓' : ''}</span>`;
   const distinctions = ["Tableau d'honneur", 'Encouragements', 'Félicitations', 'Avertissement'];
   return html`<section class="bulletin">
@@ -1474,11 +1476,13 @@ async function viewSchool(view) {
         ${field('E-mail', 'email', { type: 'email', value: school.email })}
       </div>
       <h3>Règle de calcul</h3>
-      ${selectField('Moyenne de chaque matière', 'compo_weight', [
-        ['1', '(Moyenne des devoirs + Composition) ÷ 2'],
-        ['2', '(Moyenne des devoirs + 2 × Composition) ÷ 3'],
-        ['3', '(Moyenne des devoirs + 3 × Composition) ÷ 4'],
-      ], school.compo_weight)}
+      ${hasPrimary() ? html`<p class="small muted" style="margin:0">À l'élémentaire, la moyenne de chaque matière est la moyenne des compositions : les devoirs ne comptent pas.</p>` : ''}
+      ${isPrimarySchool() ? html`<input type="hidden" name="compo_weight" value="${school.compo_weight}">`
+        : selectField(hasPrimary() ? 'Moyenne de chaque matière au collège et au lycée' : 'Moyenne de chaque matière', 'compo_weight', [
+          ['1', '(Moyenne des devoirs + Composition) ÷ 2'],
+          ['2', '(Moyenne des devoirs + 2 × Composition) ÷ 3'],
+          ['3', '(Moyenne des devoirs + 3 × Composition) ÷ 4'],
+        ], school.compo_weight)}
       <p class="form-error" hidden></p>
       <div><button class="btn primary" type="submit">Enregistrer</button></div>
     </form></div>
