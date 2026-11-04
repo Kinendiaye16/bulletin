@@ -244,6 +244,42 @@ route('POST', '/api/years', ({ user, body }) => {
   return { id: tx(() => createYear(user.school_id, label, periodType, true)) };
 });
 
+// Modifier une année : libellé, noms des périodes, ou passage semestres ⇄ trimestres.
+// Une période qui contient déjà des notes ne peut pas être supprimée.
+route('PUT', '/api/years/:id', ({ user, params, body }) => {
+  const y = db.prepare('SELECT * FROM school_years WHERE id = ? AND school_id = ?').get(toId(params.id), user.school_id);
+  if (!y) fail(404, 'Année introuvable.');
+  const label = required(body.label, "L'année scolaire", 20);
+  if (!/^\d{4}-\d{4}$/.test(label)) fail(400, "L'année scolaire doit être au format 2026-2027.");
+  if (db.prepare('SELECT 1 FROM school_years WHERE school_id = ? AND label = ? AND id <> ?').get(user.school_id, label, y.id)) {
+    fail(409, 'Cette année scolaire existe déjà.');
+  }
+  const periods = periodsOf(y.id);
+  const names = PERIOD_NAMES[body.periodType];
+  const typeChanged = names && names.length !== periods.length;
+  tx(() => {
+    db.prepare('UPDATE school_years SET label = ? WHERE id = ?').run(label, y.id);
+    if (typeChanged) {
+      for (const p of periods.slice(names.length)) {
+        if (db.prepare('SELECT 1 FROM evaluations WHERE period_id = ?').get(p.id)) {
+          fail(409, `Impossible de passer en ${body.periodType}s : des notes sont déjà saisies au « ${p.name} ».`);
+        }
+        db.prepare('DELETE FROM periods WHERE id = ?').run(p.id);
+      }
+      names.forEach((name, i) => {
+        if (periods[i]) db.prepare('UPDATE periods SET name = ? WHERE id = ?').run(name, periods[i].id);
+        else db.prepare('INSERT INTO periods (year_id, name, position) VALUES (?, ?, ?)').run(y.id, name, i + 1);
+      });
+    } else if (Array.isArray(body.periods)) {
+      for (const p of body.periods) {
+        const name = required(p.name, 'Le nom de la période', 40);
+        db.prepare('UPDATE periods SET name = ? WHERE id = ? AND year_id = ?').run(name, toId(p.id), y.id);
+      }
+    }
+  });
+  return { ok: true };
+});
+
 route('POST', '/api/years/:id/activate', ({ user, params }) => {
   const y = db.prepare('SELECT * FROM school_years WHERE id = ? AND school_id = ?').get(toId(params.id), user.school_id);
   if (!y) fail(404, 'Année introuvable.');

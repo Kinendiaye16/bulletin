@@ -1491,7 +1491,8 @@ async function viewSchool(view) {
         <tbody>${years.map((y) => html`<tr>
           <td><strong>${y.label}</strong> ${y.id === state.me.activeYearId ? html`<span class="badge green">Active</span>` : ''}</td>
           <td>${y.periods.map((p) => p.name).join(' · ')}</td>
-          <td class="actions">${y.id !== state.me.activeYearId ? html`<button class="btn sm" data-activate="${y.id}">Activer</button>` : ''}</td>
+          <td class="actions"><button class="btn sm" data-edit-year="${y.id}">Modifier</button>
+            ${y.id !== state.me.activeYearId ? html`<button class="btn sm" data-activate="${y.id}">Activer</button>` : ''}</td>
         </tr>`)}</tbody></table></div>
       <details class="panel" style="margin-top:14px"><summary>+ Nouvelle année scolaire</summary>
         <form id="y" class="stack"><div class="form-grid">
@@ -1517,6 +1518,39 @@ async function viewSchool(view) {
     await api('POST', `/api/years/${b.dataset.activate}/activate`);
     await loadMe();
     render();
+  }));
+  $$('[data-edit-year]', view).forEach((b) => (b.onclick = () => {
+    const y = years.find((x) => x.id === Number(b.dataset.editYear));
+    const currentType = y.periods.length === 3 ? 'trimestre' : 'semestre';
+    openDialog({
+      title: `Année scolaire ${y.label}`,
+      body: html`<div class="form-grid">
+          ${field('Année', 'label', { required: true, value: y.label, placeholder: 'Ex. : 2026-2027' })}
+          ${selectField('Découpage', 'periodType', [['semestre', 'Semestres'], ['trimestre', 'Trimestres']], currentType)}
+        </div>
+        <div class="stack" id="period-names">
+          ${y.periods.map((p) => field(`Nom de la période ${p.position}`, `period_${p.id}`, { required: true, value: p.name }))}
+        </div>
+        <p class="small muted" id="type-note" hidden>Les périodes seront renommées automatiquement.
+          Passer de trimestres à semestres n'est possible que si le troisième trimestre ne contient encore aucune note.</p>`,
+      onSubmit: async (data) => {
+        const typeChanged = data.periodType !== currentType;
+        await api('PUT', `/api/years/${y.id}`, typeChanged
+          ? { label: data.label, periodType: data.periodType }
+          : { label: data.label, periods: y.periods.map((p) => ({ id: p.id, name: data[`period_${p.id}`] })) });
+        await loadMe();
+        toast('Année scolaire modifiée.');
+        render();
+      },
+    });
+    // Changer le découpage remplace les noms des périodes : on masque leur saisie.
+    const dlg = $('dialog.dialog:last-of-type');
+    $('[name=periodType]', dlg).addEventListener('change', (e) => {
+      const changed = e.target.value !== currentType;
+      $('#period-names', dlg).hidden = changed;
+      $$('#period-names input', dlg).forEach((i) => { i.required = !changed; });
+      $('#type-note', dlg).hidden = !changed;
+    });
   }));
 }
 
