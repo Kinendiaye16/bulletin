@@ -1,4 +1,4 @@
-import { subjectAverage, appreciation, rankLabel } from '/shared/calc.js';
+import { subjectAverage, appreciation, rankLabel, computeRanks, round2 } from '/shared/calc.js';
 
 // =============================================================== utilitaires
 
@@ -150,25 +150,34 @@ function periodFor(periods, requested) {
 
 // =============================================================== saisie hors ligne
 
+// File d'attente des envois de notes : { key, url, body, ... } ; une nouvelle saisie remplace celle de même clé.
 const QUEUE_KEY = 'bulletin.queue';
 function readQueue() {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch { return []; }
+  try {
+    return (JSON.parse(localStorage.getItem(QUEUE_KEY)) || []).map((q) => (q.url ? q : {
+      ...q, key: `eval:${q.evaluationId}`, url: `/api/evaluations/${q.evaluationId}/grades`, body: { grades: q.grades },
+    }));
+  } catch { return []; }
 }
 function writeQueue(queue) {
   safeSet(QUEUE_KEY, JSON.stringify(queue));
   updateSync();
 }
 
-async function saveGrades(evaluationId, grades) {
+// Envoie un PUT ; sans réseau, le garde sur l'appareil pour l'envoyer plus tard.
+async function putOrQueue(key, url, body, extra = {}) {
   try {
-    await api('PUT', `/api/evaluations/${evaluationId}/grades`, { grades });
+    await api('PUT', url, body);
     return 'saved';
   } catch (e) {
     if (!e.network) throw e;
-    writeQueue([...readQueue().filter((q) => q.evaluationId !== evaluationId), { evaluationId, grades, at: Date.now() }]);
+    writeQueue([...readQueue().filter((q) => q.key !== key), { key, url, body, ...extra, at: Date.now() }]);
     return 'queued';
   }
 }
+
+const saveGrades = (evaluationId, grades) =>
+  putOrQueue(`eval:${evaluationId}`, `/api/evaluations/${evaluationId}/grades`, { grades }, { evaluationId, grades });
 
 async function flushQueue() {
   const queue = readQueue();
@@ -176,7 +185,7 @@ async function flushQueue() {
   const remaining = [];
   for (const item of queue) {
     try {
-      await api('PUT', `/api/evaluations/${item.evaluationId}/grades`, { grades: item.grades });
+      await api('PUT', item.url, item.body);
     } catch (e) {
       if (e.network) remaining.push(item);
       else toast(`Des notes saisies hors ligne n'ont pas pu être enregistrées : ${e.message}`, 'error');
@@ -209,6 +218,7 @@ const routes = [
   [/^#\/classes\/(\d+)$/, viewClass, { title: 'Classe', nav: '#/classes' }],
   [/^#\/notes$/, viewNotesIndex, { title: 'Saisie des notes', nav: '#/notes' }],
   [/^#\/notes\/(\d+)$/, viewGradeEntry, { title: 'Saisie des notes', nav: '#/notes' }],
+  [/^#\/composition\/(\d+)$/, viewComposition, { title: 'Composition', nav: '#/notes' }],
   [/^#\/resultats\/(\d+)$/, viewResults, { title: 'Résultats', nav: '#/classes' }],
   [/^#\/bulletins\/(\d+)$/, viewBulletins, { bare: true }],
   [/^#\/matieres$/, viewSubjects, { title: 'Matières', nav: '#/matieres', admin: true }],
@@ -279,7 +289,7 @@ function shell(opts) {
       <nav class="nav">${links.map(([href, label]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${label}</a>`)}</nav>
       <div class="me">
         <strong>${user.name}</strong>
-        <span class="muted">${user.role === 'admin' ? 'Direction' : 'Enseignant'}</span><br>
+        <span class="muted">${user.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span><br>
         <button class="btn ghost sm" id="logout" style="padding-left:0">Se déconnecter</button>
       </div>
     </aside>
@@ -345,17 +355,20 @@ async function viewRegister(view) {
     <div class="brand"><img src="/icon.svg" alt=""><span>Créer votre établissement</span></div>
     <form class="stack" id="f">
       <h3>L'établissement</h3>
-      ${field("Nom de l'établissement", 'schoolName', { required: true, placeholder: 'Ex. : Collège Les Pionniers' })}
+      ${field("Nom de l'établissement", 'schoolName', { required: true, placeholder: 'Ex. : École élémentaire Les Pionniers' })}
       <div class="form-grid">
+        ${field('Nom du directeur / de la directrice', 'directorName', { required: true, autocomplete: 'off' })}
         ${field('Ville', 'city', { placeholder: 'Ex. : Thiès' })}
+        ${selectField("Type d'établissement", 'schoolType', [['primaire', 'École élémentaire (CI – CM2)'], ['secondaire', 'Collège et lycée'], ['mixte', 'Élémentaire, collège et lycée']])}
         ${selectField('Statut', 'status', [['prive', 'Privé'], ['public', 'Public']])}
-        ${selectField("Niveaux d'enseignement", 'schoolType', [['secondaire', 'Collège et lycée'], ['primaire', 'Élémentaire (CI – CM2)'], ['mixte', 'Élémentaire, collège et lycée']])}
         ${selectField("Découpage de l'année", 'periodType', [['semestre', 'Semestres'], ['trimestre', 'Trimestres']])}
       </div>
-      <h3>Votre compte (direction)</h3>
-      ${field('Prénom et nom', 'name', { required: true, autocomplete: 'name' })}
+      <h3>Compte administrateur</h3>
+      <p class="small muted" style="margin:-4px 0 0">L'administrateur gère l'établissement : classes, enseignants, élèves et bulletins.
+        Ce peut être le directeur ou le secrétaire de l'école. Chaque enseignant recevra ensuite son propre accès.</p>
+      ${field("Prénom et nom de l'administrateur", 'name', { required: true, autocomplete: 'name' })}
       <div class="form-grid">
-        ${field('Adresse e-mail', 'email', { type: 'email', required: true, autocomplete: 'username' })}
+        ${field('Adresse e-mail (identifiant)', 'email', { type: 'email', required: true, autocomplete: 'username' })}
         ${field('Téléphone', 'phone', { type: 'tel', inputmode: 'tel' })}
       </div>
       ${field('Mot de passe (8 caractères minimum)', 'password', { type: 'password', required: true, autocomplete: 'new-password' })}
@@ -373,88 +386,156 @@ async function viewRegister(view) {
 
 // =============================================================== tableau de bord
 
+const isPrimarySchool = () => state.me.school.school_type === 'primaire';
+const hasPrimary = () => state.me.school.school_type !== 'secondaire';
+
 async function viewDashboard(view) {
   const [dash, mySubjects] = await Promise.all([api('GET', '/api/dashboard'), api('GET', '/api/my-subjects')]);
   const { user } = state.me;
   const period = state.periodId;
-  const steps = [
-    ['school', "Compléter les informations de l'établissement", '#/etablissement'],
-    ['teachers', 'Ajouter les enseignants', '#/enseignants'],
-    ['classes', 'Créer les classes', '#/classes'],
-    ['subjects', 'Définir les matières et coefficients des classes', '#/classes'],
-    ['students', 'Inscrire ou importer les élèves', '#/classes'],
-    ['grades', 'Saisir les premières notes', '#/notes'],
-  ];
-  const showChecklist = isAdmin() && Object.values(dash.checklist ?? {}).some((v) => !v);
+  const steps = isPrimarySchool()
+    ? [
+      ['school', "Compléter les informations de l'école", '#/etablissement'],
+      ['classes', 'Créer les classes (CI A, CI B, CP A…)', '#/classes'],
+      ['teachers', 'Ajouter les enseignants et leur classe', '#/enseignants'],
+      ['students', "Inscrire ou importer les élèves de chaque classe", '#/classes'],
+      ['grades', 'Saisir la première composition', '#/notes'],
+    ]
+    : [
+      ['school', "Compléter les informations de l'établissement", '#/etablissement'],
+      ['teachers', 'Ajouter les enseignants', '#/enseignants'],
+      ['classes', 'Créer les classes', '#/classes'],
+      ['subjects', 'Définir les matières et coefficients des classes', '#/classes'],
+      ['students', 'Inscrire ou importer les élèves', '#/classes'],
+      ['grades', 'Saisir les premières notes', '#/notes'],
+    ];
+  const showChecklist = isAdmin() && steps.some(([k]) => !dash.checklist?.[k]);
+  // Classes dont l'enseignant est le maître (élémentaire) : il y saisit les compositions.
+  const myPrimary = isAdmin() ? [] : dash.classes.filter((c) => c.cycle === 'primaire' && c.main_teacher_id === user.id);
+  const otherSubjects = mySubjects.filter((s) => !myPrimary.some((c) => c.id === s.class_id));
+  const canBulletins = (c) => isAdmin() || c.main_teacher_id === user.id;
 
   view.innerHTML = html`
     <div class="page-head"><div><h1>Bonjour ${user.name.split(' ')[0]}</h1>
       <p class="muted">${dash.year ? `Année scolaire ${dash.year.label}` : 'Aucune année scolaire active'}</p></div></div>
-    <div class="kpis">
+    ${myPrimary.map((c) => html`<div class="card">
+      <div class="page-head" style="margin-bottom:10px"><div><h2 style="margin:0">Ma classe : ${c.name}</h2>
+        <p class="muted small">${c.students} élève(s) · ${c.subjects} matière(s) · notes sur ${c.scale}</p></div></div>
+      <div class="row">
+        <a class="btn primary" href="#/composition/${c.id}">Saisir une composition</a>
+        <a class="btn" href="#/resultats/${c.id}">Résultats</a>
+        <a class="btn" href="#/bulletins/${c.id}?periode=${period}">Bulletins</a>
+        <a class="btn" href="#/classes/${c.id}">Liste des élèves</a>
+      </div></div>`)}
+    ${isAdmin() || !myPrimary.length ? html`<div class="kpis">
       <div class="kpi"><div class="label">Classes</div><div class="value">${dash.counts.classes ?? 0}</div></div>
       <div class="kpi"><div class="label">Élèves</div><div class="value">${dash.counts.students ?? 0}</div></div>
       ${isAdmin() ? html`<div class="kpi"><div class="label">Enseignants</div><div class="value">${dash.counts.teachers ?? 0}</div></div>` : ''}
       <div class="kpi"><div class="label">Évaluations saisies</div><div class="value">${dash.counts.evaluations ?? 0}</div></div>
-    </div>
+    </div>` : ''}
     ${showChecklist ? html`<div class="card"><h2>Pour bien démarrer</h2><ul class="checklist">
       ${steps.map(([k, label, href]) => html`<li class="${dash.checklist[k] ? 'done' : ''}"><span class="tick">${dash.checklist[k] ? '✓' : ''}</span><a href="${href}">${label}</a></li>`)}
     </ul></div>` : ''}
-    ${mySubjects.length && !isAdmin() ? html`<div class="card"><h2>Mes matières</h2><div class="grid">
-      ${mySubjects.map((s) => html`<a class="btn" href="#/notes/${s.id}">${s.class_name} · ${s.subject_name}</a>`)}
+    ${otherSubjects.length && !isAdmin() ? html`<div class="card"><h2>Mes matières</h2><div class="grid">
+      ${otherSubjects.map((s) => html`<a class="btn" href="#/notes/${s.id}">${s.class_name} · ${s.subject_name}</a>`)}
     </div></div>` : ''}
-    <div class="card"><h2>Classes</h2>
+    ${isAdmin() || !myPrimary.length ? html`<div class="card"><h2>Classes</h2>
       ${dash.classes.length ? html`<div class="table-wrap"><table class="data">
-        <thead><tr><th>Classe</th><th>Professeur principal</th><th class="num">Élèves</th><th class="num">Matières</th><th></th></tr></thead>
+        <thead><tr><th>Classe</th><th>Maître / prof. principal</th><th class="num">Élèves</th><th class="num">Matières</th><th></th></tr></thead>
         <tbody>${dash.classes.map((c) => html`<tr>
-          <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a> <span class="muted small">${c.level}</span></td>
+          <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a> <span class="muted small">${c.level !== c.name ? c.level : ''}</span></td>
           <td>${c.main_teacher_name || html`<span class="muted">—</span>`}</td>
           <td class="num">${c.students}</td><td class="num">${c.subjects}</td>
           <td class="actions">
+            ${c.cycle === 'primaire' && canBulletins(c) ? html`<a class="btn sm" href="#/composition/${c.id}">Composition</a>` : ''}
             <a class="btn sm" href="#/resultats/${c.id}">Résultats</a>
-            ${isAdmin() || c.main_teacher_id === user.id ? html`<a class="btn sm" href="#/bulletins/${c.id}?periode=${period}">Bulletins</a>` : ''}
+            ${canBulletins(c) ? html`<a class="btn sm" href="#/bulletins/${c.id}?periode=${period}">Bulletins</a>` : ''}
           </td></tr>`)}</tbody></table></div>`
-        : html`<p class="empty">Aucune classe pour le moment. ${isAdmin() ? html`<a href="#/classes">Créer une classe</a>` : ''}</p>`}
-    </div>`.s;
+        : html`<p class="empty">Aucune classe pour le moment. ${isAdmin() ? html`<a href="#/classes">Créer les classes</a>` : ''}</p>`}
+    </div>` : ''}`.s;
 }
 
 // =============================================================== classes
 
 const SUBJECT_CYCLES = [['primaire', 'Élémentaire'], ['secondaire', 'Collège et lycée'], ['tous', 'Tous les cycles']];
 const CYCLES = [['moyen', 'Moyen (6e – 3e)'], ['secondaire', 'Secondaire (2nde – Tle)'], ['primaire', 'Élémentaire (CI – CM2)']];
+const PRIMARY_LEVELS = ['CI', 'CP', 'CE1', 'CE2', 'CM1', 'CM2'];
+
+// Noms des classes d'un niveau : « CI » s'il n'y en a qu'une, sinon « CI A », « CI B »…
+const sectionNames = (level, count) =>
+  count === 1 ? [level] : Array.from({ length: count }, (_, i) => `${level} ${String.fromCharCode(65 + i)}`);
 
 async function viewClasses(view) {
   const [classes, users] = await Promise.all([api('GET', '/api/classes'), api('GET', '/api/users')]);
+  const bulk = isAdmin() && hasPrimary();
+  const teachers = users.filter((u) => u.role === 'enseignant');
   view.innerHTML = html`
     <div class="page-head"><div><h1>Classes</h1><p class="muted">${currentYear()?.label ?? ''}</p></div></div>
-    ${isAdmin() ? html`<details class="panel" ${raw(classes.length ? '' : 'open')}><summary>+ Nouvelle classe</summary>
+    ${bulk ? html`<details class="panel" ${raw(classes.length ? '' : 'open')}><summary>+ Créer les classes de l'élémentaire</summary>
+      <form id="bulk" class="stack">
+        <p class="small muted" style="margin:0">Indiquez combien de classes vous avez à chaque niveau. Les matières de l'élémentaire sont ajoutées automatiquement à chaque classe.</p>
+        <div class="form-grid">${PRIMARY_LEVELS.map((l) => field(`Nombre de classes de ${l}`, l, { type: 'number', value: '0', min: 0, max: 8, inputmode: 'numeric' }))}</div>
+        <p class="small" id="bulk-preview"></p>
+        <p class="form-error" hidden></p>
+        <div><button class="btn primary" type="submit">Créer les classes</button></div>
+      </form></details>` : ''}
+    ${isAdmin() ? html`<details class="panel" ${raw(classes.length || bulk ? '' : 'open')}><summary>+ ${bulk ? 'Une autre classe' : 'Nouvelle classe'}</summary>
       <form id="f" class="stack">
         <div class="form-grid">
-          ${field('Nom de la classe', 'name', { required: true, placeholder: 'Ex. : 6e A' })}
+          ${field('Nom de la classe', 'name', { required: true, placeholder: isPrimarySchool() ? 'Ex. : CE1 B' : 'Ex. : 6e A' })}
           ${field('Niveau', 'level', { placeholder: 'Ex. : 6e, CM2, Tle S2' })}
-          ${selectField('Cycle', 'cycle', CYCLES, state.me.school.school_type === 'primaire' ? 'primaire' : 'moyen')}
+          ${selectField('Cycle', 'cycle', CYCLES, isPrimarySchool() ? 'primaire' : 'moyen')}
           ${selectField('Barème', 'scale', [['', 'Automatique (sur 10 à l\'élémentaire, sur 20 sinon)'], ['20', 'Notes sur 20'], ['10', 'Notes sur 10']])}
-          ${selectField('Professeur principal / maître', 'main_teacher_id', teacherOptions(users))}
+          ${selectField('Maître / professeur principal', 'main_teacher_id', teacherOptions(users))}
         </div>
         <p class="form-error" hidden></p>
         <div><button class="btn primary" type="submit">Créer la classe</button></div>
       </form></details>` : ''}
     ${classes.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>Classe</th><th>Cycle</th><th>Barème</th><th>Prof. principal / maître</th><th class="num">Élèves</th><th></th></tr></thead>
-      <tbody>${classes.map((c) => html`<tr>
-        <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a> <span class="muted small">${c.level}</span></td>
-        <td>${CYCLES.find(([k]) => k === c.cycle)?.[1].split(' (')[0]}</td>
-        <td>/${c.scale}</td>
-        <td>${c.main_teacher_name || '—'}</td>
-        <td class="num">${c.students}</td>
+      <thead><tr><th>Classe</th><th>Cycle</th><th>Maître / prof. principal</th><th class="num">Élèves</th><th class="num">Matières</th><th></th></tr></thead>
+      <tbody>${classes.map((c) => html`<tr data-class="${c.id}">
+        <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a></td>
+        <td class="small">${CYCLES.find(([k]) => k === c.cycle)?.[1].split(' (')[0]} · /${c.scale}</td>
+        <td style="min-width:190px">${isAdmin() ? html`<select name="main_teacher_id" aria-label="Maître de ${c.name}">${teacherOptions(users, '— À désigner —').map(([v, l]) =>
+          html`<option value="${v}" ${raw(String(v) === String(c.main_teacher_id ?? '') ? 'selected' : '')}>${l}</option>`)}</select>` : c.main_teacher_name || '—'}</td>
+        <td class="num">${c.students || html`<a href="#/classes/${c.id}">0 — ajouter</a>`}</td>
+        <td class="num">${c.subjects}</td>
         <td class="actions"><a class="btn sm" href="#/classes/${c.id}">Ouvrir</a> <a class="btn sm" href="#/resultats/${c.id}">Résultats</a></td>
-      </tr>`)}</tbody></table></div>` : html`<p class="empty">Aucune classe.</p>`}`.s;
-  if (isAdmin()) {
-    bindForm($('#f'), async (data) => {
-      const { id } = await api('POST', '/api/classes', data);
-      toast('Classe créée.');
-      go(`#/classes/${id}?onglet=matieres`);
+      </tr>`)}</tbody></table></div>
+      ${isAdmin() && !teachers.length ? html`<p class="small muted" style="margin-top:8px">Pour désigner les maîtres, ajoutez d'abord les enseignants dans <a href="#/enseignants">Équipe</a>.</p>` : ''}`
+      : html`<p class="empty">Aucune classe.</p>`}`.s;
+  if (!isAdmin()) return;
+
+  bindForm($('#f'), async (data) => {
+    const { id } = await api('POST', '/api/classes', data);
+    toast('Classe créée.');
+    go(`#/classes/${id}?onglet=${data.cycle === 'primaire' ? 'eleves' : 'matieres'}`);
+  });
+  if (bulk) {
+    const form = $('#bulk');
+    const planned = () => PRIMARY_LEVELS.flatMap((l) => sectionNames(l, Math.max(0, Math.min(8, Number(form.elements[l].value) || 0)))
+      .map((name) => ({ name, level: l, cycle: 'primaire' })));
+    const preview = () => {
+      const list = planned();
+      $('#bulk-preview').textContent = list.length ? `Seront créées : ${list.map((c) => c.name).join(', ')}` : '';
+    };
+    form.addEventListener('input', preview);
+    bindForm(form, async () => {
+      const list = planned();
+      if (!list.length) throw new Error('Indiquez au moins une classe.');
+      const r = await api('POST', '/api/classes/bulk', { classes: list });
+      toast(`${r.created} classe(s) créée(s).${r.skipped.length ? ` Déjà existantes : ${r.skipped.join(', ')}.` : ''}`);
+      render();
     });
   }
+  $$('tr[data-class] select[name=main_teacher_id]', view).forEach((sel) => sel.addEventListener('change', async () => {
+    try {
+      await api('PUT', `/api/classes/${sel.closest('tr').dataset.class}/teacher`, { main_teacher_id: sel.value });
+      toast('Enseignant affecté.');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }));
 }
 
 async function viewClass(view, [id], query) {
@@ -694,18 +775,23 @@ async function viewNotesIndex(view) {
   const list = await api('GET', '/api/my-subjects');
   const byClass = new Map();
   for (const s of list) {
-    if (!byClass.has(s.class_id)) byClass.set(s.class_id, { name: s.class_name, items: [] });
+    if (!byClass.has(s.class_id)) byClass.set(s.class_id, { id: s.class_id, name: s.class_name, cycle: s.cycle, items: [] });
     byClass.get(s.class_id).items.push(s);
   }
+  const subjectButtons = (c) => html`<div class="grid">${c.items.map((s) => html`<a class="btn" href="#/notes/${s.id}" style="justify-content:space-between">
+    <span>${s.subject_name}</span><span class="muted small">coef. ${fmtNum(s.coefficient)}</span></a>`)}</div>`;
   view.innerHTML = html`
     <div class="page-head"><div><h1>Saisie des notes</h1>
-      <p class="muted">Choisissez une matière. La période se change en haut de l'écran.</p></div></div>
-    ${byClass.size ? [...byClass.values()].map((c) => html`<div class="card"><h2>${c.name}</h2><div class="grid">
-      ${c.items.map((s) => html`<a class="btn" href="#/notes/${s.id}" style="justify-content:space-between">
-        <span>${s.subject_name}</span><span class="muted small">coef. ${fmtNum(s.coefficient)}</span></a>`)}
-    </div></div>`) : html`<p class="empty">${isAdmin()
+      <p class="muted">La période se change en haut de l'écran.</p></div></div>
+    ${byClass.size ? [...byClass.values()].map((c) => html`<div class="card"><h2>${c.name}</h2>
+      ${c.cycle === 'primaire' ? html`
+        <p class="muted small">Une composition se saisit en une fois : tous les élèves, toutes les matières.</p>
+        <a class="btn primary" href="#/composition/${c.id}">Saisir une composition</a>
+        <details class="panel" style="margin:14px 0 0"><summary>Saisir matière par matière (devoirs, compositions)</summary>${subjectButtons(c)}</details>`
+        : subjectButtons(c)}
+    </div>`) : html`<p class="empty">${isAdmin()
       ? 'Aucune matière à noter. Ajoutez des matières à vos classes.'
-      : "Aucune matière ne vous est attribuée. Demandez à la direction de vous affecter à vos classes."}</p>`}`.s;
+      : "Aucune classe ni matière ne vous est attribuée. Demandez à l'administrateur de vous affecter à votre classe."}</p>`}`.s;
 }
 
 function parseGrade(text, scale) {
@@ -715,6 +801,164 @@ function parseGrade(text, scale) {
   const v = Number(t.replace(',', '.'));
   if (!Number.isFinite(v) || v < 0 || v > scale) return { invalid: true };
   return { value: v };
+}
+
+// En-têtes courts : sigle pour les intitulés de plusieurs mots (SVT, HG, EPS…).
+function shortSubject(name) {
+  if (name.length <= 12) return name;
+  const words = name.split(/[\s'’-]+/).filter((w) => w.length > 2 && !['et', 'des', 'les', 'la', 'de', 'du'].includes(w.toLowerCase()));
+  return words.length > 1 ? words.map((w) => w[0].toUpperCase()).join('') : `${name.slice(0, 9)}.`;
+}
+
+// Saisie d'une composition : une grille élèves × matières, enregistrée en une fois.
+async function viewComposition(view, [classId], query) {
+  const d = await api('GET', `/api/classes/${classId}/composition?period=${state.periodId}`);
+  const { subjects, students, labels } = d;
+  const scale = d.class.scale;
+  const label = query.get('intitule') || labels.at(-1) || 'Composition 1';
+  const isNew = !labels.includes(label);
+  const key = `compo:${classId}:${d.period.id}:${label}`;
+  const go2 = (l) => go(`#/composition/${classId}?intitule=${encodeURIComponent(l)}`);
+
+  // Notes déjà enregistrées pour cette composition, puis saisies hors ligne en attente.
+  const evalSubject = new Map(d.evaluations.filter((e) => e.label === label).map((e) => [e.id, e.class_subject_id]));
+  const values = new Map();
+  for (const g of d.grades) {
+    const cs = evalSubject.get(g.evaluation_id);
+    if (cs) values.set(`${cs}:${g.student_id}`, g.absent ? 'abs' : fmtNum(g.value));
+  }
+  const pending = readQueue().find((q) => q.key === key);
+  for (const g of pending?.body.grades ?? []) {
+    values.set(`${g.class_subject_id}:${g.student_id}`, g.absent ? 'abs' : g.value === null ? '' : fmtNum(g.value));
+  }
+  let changed = false;
+  leaveGuard = () => changed;
+
+  const labelOptions = [...new Set([...labels, label])];
+  view.innerHTML = html`
+    <div class="page-head">
+      <div><h1>${label} — ${d.class.name}</h1>
+        <p class="muted">${d.period.name} · notes sur ${scale} · ${subjects.length} matière(s)</p></div>
+      <div class="row">
+        ${labelOptions.length > 1 ? html`<select id="label" aria-label="Composition" style="width:auto">${labelOptions.map((l) =>
+          html`<option ${raw(l === label ? 'selected' : '')}>${l}</option>`)}</select>` : ''}
+        <button class="btn" id="new">+ Nouvelle composition</button>
+      </div>
+    </div>
+    ${pending ? html`<div class="alert">Cette composition a été saisie hors ligne : elle sera envoyée automatiquement au retour de la connexion.</div>` : ''}
+    ${isNew && students.length ? html`<div class="alert">Nouvelle composition : saisissez les notes de chaque matière puis cliquez sur « Enregistrer la composition ».</div>` : ''}
+    ${!students.length ? html`<p class="empty">Aucun élève dans cette classe. ${isAdmin() ? html`<a href="#/classes/${classId}">Ajouter les élèves</a>` : "Demandez à l'administrateur d'ajouter la liste des élèves."}</p>`
+      : html`<div class="table-wrap"><table class="data grades">
+        <thead><tr><th>N°</th><th>Élève</th>
+          ${subjects.map((s) => html`<th class="center subject-head" title="${s.name} — coef. ${fmtNum(s.coefficient)}">${s.name}<br><span class="small" style="text-transform:none">coef. ${fmtNum(s.coefficient)}</span></th>`)}
+          <th class="num">Total</th><th class="num">Moyenne</th><th class="num">Rang</th></tr></thead>
+        <tbody>${students.map((st, i) => html`<tr data-student="${st.id}" data-sex="${st.sex}">
+          <td>${i + 1}</td><td class="nowrap"><strong>${st.last_name}</strong> ${st.first_name}</td>
+          ${subjects.map((s, col) => html`<td class="cell center"><input class="grade" data-cs="${s.id}" data-col="${col}" data-row="${i}"
+            value="${values.get(`${s.id}:${st.id}`) ?? ''}" inputmode="decimal" autocomplete="off" aria-label="${s.name} — ${st.first_name} ${st.last_name}"></td>`)}
+          <td class="num computed" data-out="total"></td><td class="num computed" data-out="average"></td><td class="num computed" data-out="rank"></td>
+        </tr>`)}</tbody></table></div>
+      <p class="small muted" style="margin-top:8px">« abs » pour un élève absent. Entrée ou ↓ : élève suivant ; Tab : matière suivante.
+        Total = somme des notes × coefficients ; moyenne sur ${scale}.</p>
+      <div class="savebar"><span id="status" class="muted small"></span><button class="btn primary" id="save">Enregistrer la composition</button></div>`}`.s;
+
+  const rows = $$('tr[data-student]', view);
+  const recompute = () => {
+    const entries = rows.map((tr) => {
+      let points = 0;
+      let coefs = 0;
+      for (const s of subjects) {
+        const g = parseGrade($(`input[data-cs="${s.id}"]`, tr).value, scale);
+        if (g.value === undefined) continue;
+        points += g.value * s.coefficient;
+        coefs += s.coefficient;
+      }
+      const average = coefs ? round2(points / coefs) : null;
+      $('[data-out=total]', tr).textContent = coefs ? fmt(points) : '–';
+      $('[data-out=average]', tr).textContent = fmt(average);
+      return { id: tr.dataset.student, value: average, tr };
+    });
+    const ranks = computeRanks(entries);
+    for (const e of entries) {
+      const r = ranks.get(e.id);
+      $('[data-out=rank]', e.tr).textContent = r ? rankLabel(r.rank, r.tie, e.tr.dataset.sex) : '–';
+    }
+  };
+  const status = () => {
+    const el = $('#status');
+    if (el) el.textContent = changed ? 'Modifications non enregistrées' : isNew ? '' : 'Tout est enregistré.';
+  };
+
+  $$('input.grade', view).forEach((input) => {
+    const mark = () => {
+      const g = parseGrade(input.value, scale);
+      input.classList.toggle('invalid', !!g.invalid);
+      input.classList.toggle('absent', !!g.absent);
+    };
+    mark();
+    input.addEventListener('input', () => {
+      mark();
+      input.classList.add('dirty');
+      changed = true;
+      recompute();
+      status();
+    });
+    input.addEventListener('focus', () => input.select());
+    input.addEventListener('keydown', (e) => {
+      const move = e.key === 'Enter' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+      if (!move) return;
+      e.preventDefault();
+      $(`input.grade[data-col="${input.dataset.col}"][data-row="${Number(input.dataset.row) + move}"]`, view)?.focus();
+    });
+  });
+  recompute();
+  status();
+
+  $('#save', view)?.addEventListener('click', async () => {
+    const invalid = $$('input.grade.invalid', view);
+    if (invalid.length) {
+      invalid[0].focus();
+      return toast(`${invalid.length} note(s) invalide(s) : les notes vont de 0 à ${scale}.`, 'error');
+    }
+    const grades = rows.flatMap((tr) => subjects.map((s) => {
+      const g = parseGrade($(`input[data-cs="${s.id}"]`, tr).value, scale);
+      return { student_id: Number(tr.dataset.student), class_subject_id: s.id, value: g.value ?? null, absent: !!g.absent };
+    }));
+    const btn = $('#save', view);
+    btn.disabled = true;
+    try {
+      const result = await putOrQueue(key, `/api/classes/${classId}/composition`, { period_id: d.period.id, label, grades });
+      changed = false;
+      toast(result === 'queued'
+        ? 'Hors ligne : composition conservée sur cet appareil, envoi automatique au retour du réseau.'
+        : 'Composition enregistrée.');
+      if (result === 'saved') go2(label);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      status();
+    }
+  });
+
+  $('#label', view)?.addEventListener('change', (e) => {
+    if (changed && !confirm('Des notes ne sont pas enregistrées et seront perdues. Continuer ?')) {
+      e.target.value = label;
+      return;
+    }
+    changed = false;
+    go2(e.target.value);
+  });
+  $('#new', view).onclick = () => openDialog({
+    title: 'Nouvelle composition',
+    submitLabel: 'Commencer la saisie',
+    body: field('Intitulé', 'label', { required: true, value: `Composition ${labelOptions.length + (isNew ? 0 : 1)}` }),
+    onSubmit: async (data) => {
+      if (changed && !confirm('Des notes ne sont pas enregistrées et seront perdues. Continuer ?')) return;
+      changed = false;
+      go2(data.label.trim());
+    },
+  });
 }
 
 async function viewGradeEntry(view, [csId]) {
@@ -872,12 +1116,7 @@ async function viewResults(view, [classId]) {
   const scale = d.class.scale;
   const rows = [...results.students].sort((a, b) =>
     (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.last_name.localeCompare(b.last_name, 'fr'));
-  // En-têtes courts : sigle pour les intitulés de plusieurs mots (SVT, HG, EPS…).
-  const short = (name) => {
-    if (name.length <= 12) return name;
-    const words = name.split(/[\s'’-]+/).filter((w) => w.length > 2 && !['et', 'des', 'les', 'la', 'de', 'du'].includes(w.toLowerCase()));
-    return words.length > 1 ? words.map((w) => w[0].toUpperCase()).join('') : `${name.slice(0, 9)}.`;
-  };
+  const short = shortSubject;
 
   view.innerHTML = html`
     <div class="page-head">
@@ -976,6 +1215,8 @@ function bulletinPage(d, b) {
   const s = b.student;
   const scale = c.scale;
   const primary = c.cycle === 'primaire'; // un seul maître : pas de colonne « Professeur »
+  // Classe notée uniquement par compositions (cas courant à l'élémentaire) : pas de colonnes devoirs / compo.
+  const withDevoirs = d.hasDevoirs ??= d.bulletins.some((x) => Object.values(x.student.subjects).some((r) => r.devoirs !== null));
   const tick = (on) => html`<span class="box">${on ? '✓' : ''}</span>`;
   const distinctions = ["Tableau d'honneur", 'Encouragements', 'Félicitations', 'Avertissement'];
   return html`<section class="bulletin">
@@ -1009,19 +1250,19 @@ function bulletinPage(d, b) {
 
     <table class="b-grades">
       <thead><tr>
-        <th style="text-align:left">Matières</th><th>Coef.</th><th>Moy. devoirs</th><th>Compo.</th>
+        <th style="text-align:left">Matières</th><th>Coef.</th>${withDevoirs ? html`<th>Moy. devoirs</th><th>Compo.</th>` : ''}
         <th>Moy. /${scale}</th><th>Moy. × coef.</th><th>Rang</th><th style="text-align:left">Appréciation</th>${primary ? '' : html`<th style="text-align:left">Professeur</th>`}
       </tr></thead>
       <tbody>${subjects.map((sub) => {
         const r = s.subjects[sub.id];
         return html`<tr>
           <td>${sub.name}</td><td class="n">${fmtNum(sub.coefficient)}</td>
-          <td class="n">${fmt(r.devoirs)}</td><td class="n">${fmt(r.composition)}</td>
+          ${withDevoirs ? html`<td class="n">${fmt(r.devoirs)}</td><td class="n">${fmt(r.composition)}</td>` : ''}
           <td class="n"><strong>${fmt(r.average)}</strong></td><td class="n">${fmt(r.weighted)}</td>
           <td class="n">${rankLabel(r.rank, r.tie, s.sex)}</td><td>${r.appreciation}</td>${primary ? '' : html`<td>${sub.teacher_name || ''}</td>`}
         </tr>`;
       })}</tbody>
-      <tfoot><tr><td>Totaux</td><td class="n">${fmtNum(s.totalCoef)}</td><td></td><td></td><td></td>
+      <tfoot><tr><td>Totaux</td><td class="n">${fmtNum(s.totalCoef)}</td>${withDevoirs ? html`<td></td><td></td>` : ''}<td></td>
         <td class="n">${fmt(s.totalPoints)}</td><td colspan="${primary ? 2 : 3}"></td></tr></tfoot>
     </table>
 
@@ -1136,8 +1377,15 @@ function subjectChecks(subjects, selected = []) {
 async function viewTeachers(view) {
   // Au collège et au lycée, chaque professeur a sa ou ses matières ; à l'élémentaire, un maître par classe.
   const hasSecondary = state.me.school.school_type !== 'primaire';
-  const [users, allSubjects] = await Promise.all([api('GET', '/api/users'), hasSecondary ? api('GET', '/api/subjects') : []]);
+  const [users, allSubjects, classes] = await Promise.all([
+    api('GET', '/api/users'),
+    hasSecondary ? api('GET', '/api/subjects') : [],
+    hasPrimary() ? api('GET', '/api/classes') : [],
+  ]);
   const subjects = allSubjects.filter((s) => s.cycle !== 'primaire'); // les maîtres enseignent tout
+  const primaryClasses = classes.filter((c) => c.cycle === 'primaire');
+  const classOptions = [['', primaryClasses.length ? '— Choisir sa classe —' : '— Aucune classe créée —'],
+    ...primaryClasses.map((c) => [c.id, c.main_teacher_name ? `${c.name} (actuellement : ${c.main_teacher_name})` : c.name])];
   const subjectName = new Map(subjects.map((s) => [s.id, s.name]));
   const withSubjects = (data, form) => ({ ...data, subject_ids: new FormData(form).getAll('subject_ids') });
 
@@ -1145,15 +1393,16 @@ async function viewTeachers(view) {
     <div class="page-head"><div><h1>Équipe</h1>
       <p class="muted">${hasSecondary
         ? "Au collège et au lycée, indiquez la ou les matières de chaque professeur : ils seront proposés en priorité quand vous affecterez un professeur à chaque matière d'une classe."
-        : "À l'élémentaire, chaque classe a un seul maître, qui enseigne toutes les matières. Ajoutez les maîtres ici, puis affectez-les à leur classe dans les paramètres de la classe."}
+        : "À l'élémentaire, chaque classe a un seul maître, qui enseigne toutes les matières. Ajoutez chaque enseignant avec sa classe : il pourra se connecter avec son e-mail et saisir les compositions de sa classe."}
       ${state.me.school.school_type === 'mixte' ? " À l'élémentaire, le maître de la classe enseigne toutes les matières." : ''}</p></div></div>
     <details class="panel" ${raw(users.length < 2 ? 'open' : '')}><summary>+ Ajouter un membre</summary>
       <form id="f" class="stack"><div class="form-grid">
         ${field('Prénom et nom', 'name', { required: true })}
         ${field('Adresse e-mail (identifiant)', 'email', { type: 'email', required: true })}
         ${field('Téléphone', 'phone', { type: 'tel', inputmode: 'tel' })}
-        ${selectField('Rôle', 'role', [['enseignant', hasSecondary ? 'Enseignant / professeur' : 'Maître / maîtresse'], ['admin', 'Direction / secrétariat']])}
+        ${selectField('Rôle', 'role', [['enseignant', hasSecondary ? 'Enseignant / professeur' : 'Maître / maîtresse'], ['admin', 'Administrateur (direction ou secrétariat)']])}
         ${field('Mot de passe provisoire', 'password', { required: true, value: tempPassword() })}
+        ${hasPrimary() ? selectField(hasSecondary ? 'Maître de la classe (élémentaire)' : 'Classe dont il/elle est le maître', 'class_id', classOptions) : ''}
       </div>
       ${hasSecondary ? subjectChecks(subjects) : ''}
       <p class="small muted">Communiquez ce mot de passe à la personne ; vous pourrez le réinitialiser à tout moment.</p>
@@ -1164,11 +1413,15 @@ async function viewTeachers(view) {
       <tbody>${users.map((u) => html`<tr>
         <td><strong>${u.name}</strong></td>
         ${hasSecondary ? html`<td class="small">${u.subject_ids.map((id) => subjectName.get(id)).filter(Boolean).join(', ') || html`<span class="muted">—</span>`}</td>` : ''}
-        <td class="small">${u.main_of ? html`<div>Prof. principal / maître : <strong>${u.main_of.split(',').join(', ')}</strong></div>` : ''}
-          ${u.classes_taught ? html`<div>Enseigne en : ${u.classes_taught.split(',').join(', ')}</div>` : ''}
+        <td class="small">${u.main_of ? html`<div>${hasSecondary ? 'Prof. principal / maître' : 'Maître de la classe'} : <strong>${u.main_of.split(',').join(', ')}</strong></div>` : ''}
+          ${(() => {
+            // Un maître enseigne déjà toutes les matières de sa classe : inutile de la répéter.
+            const others = (u.classes_taught ? u.classes_taught.split(',') : []).filter((n) => !(u.main_of ?? '').split(',').includes(n));
+            return others.length ? html`<div>Enseigne en : ${others.join(', ')}</div>` : '';
+          })()}
           ${!u.main_of && !u.classes_taught ? html`<span class="muted">—</span>` : ''}</td>
         <td class="small">${u.email}<br>${u.phone}</td>
-        <td><span class="badge ${u.role === 'admin' ? 'green' : ''}">${u.role === 'admin' ? 'Direction' : 'Enseignant'}</span></td>
+        <td><span class="badge ${u.role === 'admin' ? 'green' : ''}">${u.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span></td>
         <td class="actions"><button class="btn sm" data-edit="${u.id}">Modifier</button>
           ${u.id !== state.me.user.id ? html`<button class="btn sm danger" data-del="${u.id}">Supprimer</button>` : ''}</td>
       </tr>`)}</tbody></table></div>`.s;

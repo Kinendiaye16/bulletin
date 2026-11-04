@@ -25,11 +25,12 @@ export function createYear(schoolId, label, periodType = 'semestre', activate = 
   return Number(yearId);
 }
 
-export function createSchool({ schoolName, city = '', schoolType = 'secondaire', status = 'prive', admin, periodType = 'semestre' }) {
+// Le compte administrateur peut être celui du directeur ou du secrétariat : le nom du directeur est distinct.
+export function createSchool({ schoolName, city = '', schoolType = 'secondaire', status = 'prive', admin, periodType = 'semestre', directorName = '' }) {
   return tx(() => {
     const { lastInsertRowid } = db
       .prepare('INSERT INTO schools (name, city, status, school_type, director_name) VALUES (?, ?, ?, ?, ?)')
-      .run(schoolName, city, status, schoolType, admin.name);
+      .run(schoolName, city, status, schoolType, directorName || admin.name);
     const schoolId = Number(lastInsertRowid);
     const { lastInsertRowid: userId } = db
       .prepare("INSERT INTO users (school_id, name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?, 'admin')")

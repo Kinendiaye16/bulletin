@@ -16,12 +16,30 @@ npm test        # tests du moteur de calcul
 
 ### Comptes de démonstration (créés par `npm run seed`)
 
+**École élémentaire Les Filaos** (CI A à CM2, un maître par classe, notes par compositions)
+
+| Rôle | E-mail | Mot de passe |
+|---|---|---|
+| Administratrice (secrétariat) | `secretariat@filaos.demo.sn` | `demo-filaos` |
+| Maîtres (CI A, CI B, CP A, CE1, CE2, CM1, CM2) | `maitre1@filaos.demo.sn` … `maitre7@filaos.demo.sn` | `demo-enseignant` |
+
+**Groupe scolaire Les Baobabs** (élémentaire et collège, un professeur par matière)
+
 | Rôle | E-mail | Mot de passe |
 |---|---|---|
 | Direction | `directeur@demo.sn` | `demo-bulletin` |
-| Enseignants | `ndiaye@demo.sn`, `fall@demo.sn`, `diallo@demo.sn` | `demo-enseignant` |
+| Enseignants | `ndiaye@demo.sn`, `fall@demo.sn`, `diallo@demo.sn`, `faye@demo.sn` | `demo-enseignant` |
 
-Relancer `npm run seed` réinitialise l'établissement de démonstration (les autres établissements ne sont pas touchés).
+Relancer `npm run seed` réinitialise les établissements de démonstration (les autres établissements ne sont pas touchés).
+
+## Parcours d'une école élémentaire
+
+1. **Inscription** : nom de l'école, nom du directeur, type « École élémentaire », puis le compte **administrateur** (directeur ou secrétaire).
+2. **Classes** : l'administrateur indique combien de classes il y a par niveau (CI, CP, CE1…) ; les classes CI A, CI B… sont créées avec toutes les matières de l'élémentaire.
+3. **Enseignants** : dans « Équipe », l'administrateur ajoute chaque maître avec sa classe ; le maître enseigne toutes les matières de sa classe.
+4. **Élèves** : liste de chaque classe saisie ou importée depuis Excel.
+5. **Compositions** : chaque maître se connecte avec son propre compte et saisit une composition en une fois (tous les élèves, toutes les matières) ; total, moyenne et rang se calculent en direct.
+6. **Bulletins** : imprimés par le maître ou l'administrateur, signés du maître et du directeur.
 
 ## Fonctionnalités du MVP
 

@@ -192,6 +192,7 @@ route('POST', '/api/auth/register', ({ body, ...ctx }) => {
     schoolType: SCHOOL_TYPES.includes(body.schoolType) ? body.schoolType : 'secondaire',
     status: body.status === 'public' ? 'public' : 'prive',
     periodType: body.periodType === 'trimestre' ? 'trimestre' : 'semestre',
+    directorName: str(body.directorName, 120),
     admin,
   });
   startSession(ctx, userId);
@@ -257,14 +258,14 @@ route('POST', '/api/years/:id/activate', ({ user, params }) => {
 route('GET', '/api/dashboard', ({ user }) => {
   const year = activeYear(user.school_id);
   if (!year) return { classes: [], counts: {} };
-  const classes = db.prepare(`
+  const classes = sortClasses(db.prepare(`
     SELECT c.id, c.name, c.level, c.cycle, c.scale, c.main_teacher_id, u.name AS main_teacher_name,
       (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = c.id) AS students,
       (SELECT COUNT(*) FROM class_subjects cs WHERE cs.class_id = c.id) AS subjects,
       (SELECT COUNT(*) FROM evaluations ev JOIN class_subjects cs ON cs.id = ev.class_subject_id WHERE cs.class_id = c.id) AS evaluations
     FROM classes c LEFT JOIN users u ON u.id = c.main_teacher_id
-    WHERE c.year_id = ? ORDER BY c.name COLLATE NOCASE`).all(year.id)
-    .filter((c) => isAdmin(user) || c.main_teacher_id === user.id || teachesIn(user, c.id));
+    WHERE c.year_id = ?`).all(year.id)
+    .filter((c) => isAdmin(user) || c.main_teacher_id === user.id || teachesIn(user, c.id)));
   const school = schoolOf(user.school_id);
   const counts = {
     classes: classes.length,
@@ -350,6 +351,12 @@ route('POST', '/api/users', ({ user, body }) => {
       body.role === 'admin' ? 'admin' : 'enseignant');
     const id = Number(r.lastInsertRowid);
     setTeacherSubjects(id, body.subject_ids, user.school_id);
+    // À l'élémentaire, le maître est affecté à sa classe dès son ajout.
+    if (body.class_id) {
+      const c = loadClass(body.class_id, user);
+      db.prepare('UPDATE classes SET main_teacher_id = ? WHERE id = ?').run(id, c.id);
+      syncPrimaryTeacher(c.id);
+    }
     return { id };
   });
 });
@@ -393,14 +400,26 @@ function classInput(body, user) {
 
 route('GET', '/api/classes', ({ user, query }) => {
   const yearId = query.year ? toId(query.year) : activeYear(user.school_id)?.id;
-  return db.prepare(`
+  return sortClasses(db.prepare(`
     SELECT c.*, u.name AS main_teacher_name,
-      (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = c.id) AS students
+      (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = c.id) AS students,
+      (SELECT COUNT(*) FROM class_subjects cs WHERE cs.class_id = c.id) AS subjects
     FROM classes c JOIN school_years y ON y.id = c.year_id
     LEFT JOIN users u ON u.id = c.main_teacher_id
-    WHERE y.school_id = ? AND c.year_id = ? ORDER BY c.name COLLATE NOCASE`).all(user.school_id, yearId ?? 0)
-    .filter((c) => isAdmin(user) || c.main_teacher_id === user.id || teachesIn(user, c.id));
+    WHERE y.school_id = ? AND c.year_id = ?`).all(user.school_id, yearId ?? 0)
+    .filter((c) => isAdmin(user) || c.main_teacher_id === user.id || teachesIn(user, c.id)));
 }, 'user');
+
+// Les classes se suivent dans l'ordre scolaire (CI, CP, CE1… puis 6e… Tle), pas par ordre alphabétique.
+const LEVEL_ORDER = ['CI', 'CP', 'CE1', 'CE2', 'CM1', 'CM2', '6E', '5E', '4E', '3E', '2NDE', '1ERE', '1ÈRE', 'TLE'];
+function sortClasses(classes) {
+  const rank = (c) => {
+    const key = String(c.level || c.name.split(' ')[0]).toUpperCase().replace(/\s+/g, '');
+    const i = LEVEL_ORDER.indexOf(key);
+    return i === -1 ? LEVEL_ORDER.length : i;
+  };
+  return classes.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'fr'));
+}
 
 route('POST', '/api/classes', ({ user, body }) => {
   const year = body.year_id
@@ -408,9 +427,47 @@ route('POST', '/api/classes', ({ user, body }) => {
     : activeYear(user.school_id);
   if (!year) fail(400, "Créez d'abord une année scolaire.");
   const c = classInput(body, user);
+  if (db.prepare('SELECT 1 FROM classes WHERE year_id = ? AND name = ?').get(year.id, c.name)) fail(409, `La classe ${c.name} existe déjà.`);
+  return { id: tx(() => insertClass(year.id, c, user.school_id)) };
+});
+
+// À l'élémentaire, la classe reçoit d'office toutes les matières du cycle, enseignées par son maître.
+function insertClass(yearId, c, schoolId) {
   const r = db.prepare('INSERT INTO classes (year_id, name, level, cycle, scale, main_teacher_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(year.id, c.name, c.level, c.cycle, c.scale, c.mainTeacher);
-  return { id: Number(r.lastInsertRowid) };
+    .run(yearId, c.name, c.level, c.cycle, c.scale, c.mainTeacher);
+  const id = Number(r.lastInsertRowid);
+  if (c.cycle === 'primaire') addAllSubjects({ id, cycle: c.cycle, main_teacher_id: c.mainTeacher }, schoolId);
+  return id;
+}
+
+// Affectation rapide du maître ou du professeur principal depuis la liste des classes
+route('PUT', '/api/classes/:id/teacher', ({ user, params, body }) => {
+  const c = loadClass(params.id, user);
+  db.prepare('UPDATE classes SET main_teacher_id = ? WHERE id = ?').run(teacherOfSchool(body.main_teacher_id, user), c.id);
+  syncPrimaryTeacher(c.id);
+  return { ok: true };
+});
+
+// Création en une fois de plusieurs classes, par exemple CI A, CI B, CP A…
+route('POST', '/api/classes/bulk', ({ user, body }) => {
+  const year = activeYear(user.school_id);
+  if (!year) fail(400, "Créez d'abord une année scolaire.");
+  if (!Array.isArray(body.classes) || !body.classes.length) fail(400, 'Aucune classe à créer.');
+  const exists = db.prepare('SELECT 1 FROM classes WHERE year_id = ? AND name = ?');
+  let created = 0;
+  const skipped = [];
+  tx(() => {
+    for (const raw of body.classes.slice(0, 100)) {
+      const c = classInput({ ...raw, cycle: raw.cycle ?? body.cycle }, user);
+      if (exists.get(year.id, c.name)) {
+        skipped.push(c.name);
+        continue;
+      }
+      insertClass(year.id, c, user.school_id);
+      created++;
+    }
+  });
+  return { created, skipped };
 });
 
 route('GET', '/api/classes/:id', ({ user, params }) => {
@@ -480,21 +537,24 @@ route('POST', '/api/classes/:id/subjects', ({ user, params, body }) => {
   return { id: Number(r.lastInsertRowid) };
 });
 
+// Ajoute à une classe toutes les matières de son cycle (ou communes à tous les cycles) qu'elle n'a pas encore,
+// dans l'ordre où l'établissement les a créées. À appeler dans une transaction.
+function addAllSubjects(c, schoolId) {
+  const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND cycle IN ('tous', ?) AND id NOT IN
+    (SELECT subject_id FROM class_subjects WHERE class_id = ?) ORDER BY id`)
+    .all(schoolId, subjectCycleForClass(c.cycle), c.id);
+  const insert = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)');
+  let pos = nextPosition(c.id);
+  for (const s of subjects) {
+    const teacher = c.cycle === 'primaire' ? c.main_teacher_id : onlySpecialist(s.id, schoolId);
+    insert.run(c.id, s.id, s.default_coefficient, teacher, pos++);
+  }
+  return subjects.length;
+}
+
 route('POST', '/api/classes/:id/subjects/all', ({ user, params }) => {
   const c = loadClass(params.id, user);
-  // Seules les matières du cycle de la classe (ou communes à tous les cycles) sont ajoutées.
-  const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND cycle IN ('tous', ?) AND id NOT IN
-    (SELECT subject_id FROM class_subjects WHERE class_id = ?) ORDER BY name COLLATE NOCASE`)
-    .all(user.school_id, subjectCycleForClass(c.cycle), c.id);
-  tx(() => {
-    const insert = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)');
-    let pos = nextPosition(c.id);
-    for (const s of subjects) {
-      const teacher = c.cycle === 'primaire' ? c.main_teacher_id : onlySpecialist(s.id, user.school_id);
-      insert.run(c.id, s.id, s.default_coefficient, teacher, pos++);
-    }
-  });
-  return { added: subjects.length };
+  return { added: tx(() => addAllSubjects(c, user.school_id)) };
 });
 
 route('PUT', '/api/class-subjects/:id', ({ user, params, body }) => {
@@ -595,7 +655,7 @@ route('GET', '/api/my-subjects', ({ user }) => {
   if (!year) return [];
   return db.prepare(`
     SELECT cs.id, cs.coefficient, cs.teacher_id, s.name AS subject_name, u.name AS teacher_name,
-           c.id AS class_id, c.name AS class_name, c.scale
+           c.id AS class_id, c.name AS class_name, c.scale, c.cycle, c.main_teacher_id
     FROM class_subjects cs
     JOIN classes c ON c.id = cs.class_id
     JOIN subjects s ON s.id = cs.subject_id
@@ -652,21 +712,78 @@ route('PUT', '/api/evaluations/:id/grades', ({ user, params, body }) => {
   const { ev, c } = loadEvaluation(params.id, user);
   if (!Array.isArray(body.grades)) fail(400, 'Notes manquantes.');
   const enrolled = new Set(studentsOf(c.id).map((s) => s.id));
-  const upsert = db.prepare(`INSERT INTO grades (evaluation_id, student_id, value, absent) VALUES (?, ?, ?, ?)
-    ON CONFLICT (evaluation_id, student_id) DO UPDATE SET value = excluded.value, absent = excluded.absent`);
-  const remove = db.prepare('DELETE FROM grades WHERE evaluation_id = ? AND student_id = ?');
+  tx(() => {
+    for (const g of body.grades) writeGrade(ev.id, g, c.scale, enrolled);
+  });
+  return { ok: true };
+}, 'user');
+
+// Enregistre (ou efface, si vide) la note d'un élève inscrit. À appeler dans une transaction.
+function writeGrade(evaluationId, g, scale, enrolled) {
+  const sid = toId(g.student_id);
+  if (!enrolled.has(sid)) return;
+  const absent = g.absent ? 1 : 0;
+  const empty = g.value === null || g.value === undefined || String(g.value).trim() === '';
+  if (empty && !absent) {
+    db.prepare('DELETE FROM grades WHERE evaluation_id = ? AND student_id = ?').run(evaluationId, sid);
+    return;
+  }
+  const value = absent ? null : num(g.value, `Note (de 0 à ${scale})`, { min: 0, max: scale });
+  db.prepare(`INSERT INTO grades (evaluation_id, student_id, value, absent) VALUES (?, ?, ?, ?)
+    ON CONFLICT (evaluation_id, student_id) DO UPDATE SET value = excluded.value, absent = excluded.absent`)
+    .run(evaluationId, sid, value, absent);
+}
+
+// ---------------------------------------------------------------- saisie d'une composition (toutes les matières)
+// Une composition regroupe, pour une période, une évaluation de type « composition » par matière portant le même intitulé.
+
+route('GET', '/api/classes/:id/composition', ({ user, params, query }) => {
+  const c = loadClass(params.id, user);
+  const period = loadPeriod(query.period, c);
+  const subjects = classSubjectsOf(c.id).filter((cs) => isAdmin(user) || cs.teacher_id === user.id);
+  if (!subjects.length) fail(403, "Vous n'avez aucune matière à noter dans cette classe.");
+  const evaluations = db.prepare(`SELECT e.* FROM evaluations e JOIN class_subjects cs ON cs.id = e.class_subject_id
+    WHERE cs.class_id = ? AND e.period_id = ? AND e.type = 'composition' ORDER BY e.id`).all(c.id, period.id);
+  const grades = db.prepare(`SELECT g.* FROM grades g JOIN evaluations e ON e.id = g.evaluation_id
+    JOIN class_subjects cs ON cs.id = e.class_subject_id
+    WHERE cs.class_id = ? AND e.period_id = ? AND e.type = 'composition'`).all(c.id, period.id);
+  return {
+    class: { id: c.id, name: c.name, scale: c.scale, cycle: c.cycle, year_label: c.year_label, main_teacher_name: c.main_teacher_name },
+    period,
+    periods: periodsOf(c.year_id),
+    subjects,
+    students: studentsOf(c.id),
+    labels: [...new Set(evaluations.map((e) => e.label))],
+    evaluations,
+    grades,
+  };
+}, 'user');
+
+route('PUT', '/api/classes/:id/composition', ({ user, params, body }) => {
+  const c = loadClass(params.id, user);
+  const period = loadPeriod(body.period_id, c);
+  const label = required(body.label, "L'intitulé de la composition", 60);
+  if (!Array.isArray(body.grades)) fail(400, 'Notes manquantes.');
+  const subjects = new Map(classSubjectsOf(c.id).map((cs) => [cs.id, cs]));
+  if (!isAdmin(user) && ![...subjects.values()].some((cs) => cs.teacher_id === user.id)) {
+    fail(403, "Vous n'avez aucune matière à noter dans cette classe.");
+  }
+  const enrolled = new Set(studentsOf(c.id).map((s) => s.id));
+  const findEval = db.prepare(`SELECT id FROM evaluations
+    WHERE class_subject_id = ? AND period_id = ? AND type = 'composition' AND label = ?`);
+  const createEval = db.prepare(`INSERT INTO evaluations (class_subject_id, period_id, type, label, eval_date)
+    VALUES (?, ?, 'composition', ?, ?)`);
+  const evalIds = new Map();
   tx(() => {
     for (const g of body.grades) {
-      const sid = toId(g.student_id);
-      if (!enrolled.has(sid)) continue;
-      const absent = g.absent ? 1 : 0;
-      const empty = g.value === null || g.value === undefined || String(g.value).trim() === '';
-      if (empty && !absent) {
-        remove.run(ev.id, sid);
-        continue;
+      const cs = subjects.get(Number(g.class_subject_id));
+      if (!cs) fail(400, 'Matière invalide.');
+      assertCanGrade(user, cs);
+      if (!evalIds.has(cs.id)) {
+        evalIds.set(cs.id, findEval.get(cs.id, period.id, label)?.id
+          ?? Number(createEval.run(cs.id, period.id, label, str(body.eval_date, 20)).lastInsertRowid));
       }
-      const value = absent ? null : num(g.value, `Note (de 0 à ${c.scale})`, { min: 0, max: c.scale });
-      upsert.run(ev.id, sid, value, absent);
+      writeGrade(evalIds.get(cs.id), g, c.scale, enrolled);
     }
   });
   return { ok: true };

@@ -222,6 +222,7 @@ table.grades input.grade.invalid { border-color: var(--danger); background: var(
 table.grades input.grade.dirty { border-color: var(--accent); }
 table.grades input.grade.absent { color: var(--muted); font-style: italic; }
 table.grades th .eval-head { display: flex; align-items: center; gap: 4px; justify-content: center; text-transform: none; }
+table.grades th.subject-head { white-space: normal; min-width: 84px; max-width: 110px; line-height: 1.25; vertical-align: bottom; }
 table.grades th.compo { background: var(--primary-soft); color: var(--primary-strong); }
 table.grades td.computed { background: var(--surface-2); font-weight: 600; }
 .savebar {
