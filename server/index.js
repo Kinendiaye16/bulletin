@@ -733,6 +733,30 @@ route('GET', '/api/my-subjects', ({ user }) => {
     ORDER BY c.name COLLATE NOCASE, cs.position, s.name COLLATE NOCASE`).all(year.id, user.role, user.id);
 }, 'user');
 
+// Avancement de la saisie pour une période : classes visibles par l'utilisateur,
+// avec le nombre de matières qui ont déjà au moins une note.
+route('GET', '/api/grading-overview', ({ user, query }) => {
+  const year = activeYear(user.school_id);
+  if (!year) return { classes: [], graded: [] };
+  const period = db.prepare('SELECT * FROM periods WHERE id = ? AND year_id = ?').get(toId(query.period), year.id)
+    ?? db.prepare('SELECT * FROM periods WHERE year_id = ? ORDER BY position LIMIT 1').get(year.id);
+  const classes = sortClasses(db.prepare(`
+    SELECT c.id, c.name, c.level, c.cycle, c.scale, c.main_teacher_id, u.name AS main_teacher_name,
+      (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = c.id) AS students,
+      (SELECT COUNT(*) FROM class_subjects cs WHERE cs.class_id = c.id) AS subjects
+    FROM classes c LEFT JOIN users u ON u.id = c.main_teacher_id
+    WHERE c.year_id = ? AND (? = 'admin' OR c.main_teacher_id = ?
+      OR EXISTS (SELECT 1 FROM class_subjects cs WHERE cs.class_id = c.id AND cs.teacher_id = ?))`)
+    .all(year.id, user.role, user.id, user.id));
+  // Matières (de la classe) ayant au moins une note sur la période.
+  const graded = period ? db.prepare(`
+    SELECT DISTINCT e.class_subject_id AS id FROM evaluations e
+    JOIN grades g ON g.evaluation_id = e.id AND (g.value IS NOT NULL OR g.absent = 1)
+    JOIN class_subjects cs ON cs.id = e.class_subject_id JOIN classes c ON c.id = cs.class_id
+    WHERE e.period_id = ? AND c.year_id = ?`).all(period.id, year.id).map((r) => r.id) : [];
+  return { period, classes, graded };
+}, 'user');
+
 route('GET', '/api/class-subjects/:id/grades', ({ user, params, query }) => {
   const { cs, c } = loadClassSubject(params.id, user);
   assertCanGrade(user, cs);

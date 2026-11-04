@@ -579,6 +579,76 @@ table.grades td.computed { background: var(--surface-2); font-weight: 600; }
   .stat-card .note { display: none; }
 }
 
+/* ---------- page Saisie des notes */
+.period-chip { display: inline-flex; align-items: center; gap: 8px; background: #123d2b; color: #fff; font-weight: 700; padding: 12px 18px; border-radius: 10px; }
+.period-chip .icon { width: 18px; height: 18px; }
+.mode-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; margin-bottom: 34px; }
+.mode-card { display: flex; gap: 18px; align-items: flex-start; text-align: left; padding: 24px 26px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.mode-card strong { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 1.08rem; margin-bottom: 6px; }
+.mode-card > span:last-child > span { color: var(--muted); }
+.mode-card.on { border: 1.5px solid var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent); }
+.mode-icon { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); flex: none; }
+.mode-card.on .mode-icon { background: var(--primary); color: #fff; }
+.section-title { display: flex; align-items: center; gap: 12px; font-size: 1.25rem; margin: 0 0 16px; }
+.count-dot { min-width: 28px; height: 28px; padding: 0 8px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 0.85rem; display: inline-grid; place-items: center; }
+.count-dot.muted { background: var(--surface-2); color: var(--muted); }
+.section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-top: 34px; }
+.section-head p { margin: 0 0 16px; }
+.ready-list { display: grid; gap: 16px; }
+.ready-card { padding: 24px 28px; border-radius: 18px; margin-bottom: 0; }
+.ready-row { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.class-badge.big { min-width: 82px; height: 82px; padding: 0 12px; border-radius: 16px; font-size: 1.2rem; }
+.ready-info { flex: 1 1 180px; min-width: 0; }
+.ready-info > strong { font-size: 1.4rem; font-weight: 800; }
+.ready-info .meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); margin-top: 6px; }
+.ready-info .meta span { display: inline-flex; align-items: center; gap: 6px; }
+.ready-info .meta .icon { width: 16px; height: 16px; }
+.grade-progress { flex: 1 1 240px; max-width: 320px; min-width: 240px; }
+@media (min-width: 1200px) {
+  .ready-row { display: grid; grid-template-columns: auto minmax(170px, 1fr) minmax(260px, 300px) auto; }
+  .ready-row .grade-progress { max-width: none; min-width: 0; }
+  .ready-row .ready-actions { flex-wrap: nowrap; }
+}
+.gp-top { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
+.gp-top span { display: inline-flex; align-items: center; gap: 6px; }
+.gp-top .icon { width: 17px; height: 17px; }
+.gp-top strong { color: var(--muted); }
+.grade-progress.todo .gp-top span, .grade-progress.partial .gp-top span { color: #a86a00; }
+.grade-progress.done .gp-top span { color: var(--primary); }
+.grade-progress .meter.warn { background: var(--surface-2); }
+.ready-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.ready-actions .btn { padding: 11px 16px; border-radius: 10px; }
+.subjects-panel { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.subject-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.subject-pick { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); text-decoration: none; }
+.subject-pick .icon { grid-row: span 2; width: 20px; height: 20px; color: var(--muted); }
+.subject-pick.done .icon { color: var(--primary); }
+.subject-pick span { font-weight: 600; }
+.subject-pick small { color: var(--muted); }
+.subject-pick:hover { border-color: var(--primary); background: var(--primary-soft); }
+.waiting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+.waiting-card { padding: 20px 22px; border-radius: 16px; margin-bottom: 0; display: grid; gap: 14px; align-content: start; }
+.wc-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wc-top strong { font-size: 1.1rem; }
+.waiting-card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; color: var(--muted); }
+.waiting-card li { display: flex; align-items: center; gap: 8px; }
+.waiting-card li .icon { width: 16px; height: 16px; }
+.waiting-card li.warn { color: #8a5a10; }
+.waiting-card li.warn .icon { color: #c98a12; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .waiting-card li.warn { color: #e0c27a; }
+  :root:not([data-theme="light"]) .grade-progress.todo .gp-top span, :root:not([data-theme="light"]) .grade-progress.partial .gp-top span { color: #f2c94c; }
+}
+@media (max-width: 620px) {
+  .ready-card { padding: 18px; }
+  .mode-cards { gap: 10px; margin-bottom: 24px; }
+  .mode-card { padding: 16px; gap: 12px; }
+  .mode-icon { width: 38px; height: 38px; }
+  .class-badge.big { min-width: 60px; height: 60px; font-size: 1rem; }
+  .grade-progress { flex-basis: 100%; }
+  .ready-actions, .ready-actions .btn { width: 100%; }
+}
+
 /* ---------- pages publiques */
 .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
 .auth .card { width: 100%; max-width: 520px; padding: 28px; }

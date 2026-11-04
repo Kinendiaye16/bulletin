@@ -54,6 +54,7 @@ const ICONS = {
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
   printer: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
   tick: '<path d="M20 6 9 17l-5-5"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
@@ -1083,26 +1084,110 @@ function renderClassSettings(el, c, users) {
 // =============================================================== saisie des notes
 
 async function viewNotesIndex(view) {
-  const list = await api('GET', '/api/my-subjects');
-  const byClass = new Map();
+  const [list, overview] = await Promise.all([
+    api('GET', '/api/my-subjects'),
+    api('GET', `/api/grading-overview?period=${state.periodId}`),
+  ]);
+  const admin = isAdmin();
+  const graded = new Set(overview.graded);
+  const itemsByClass = new Map();
   for (const s of list) {
-    if (!byClass.has(s.class_id)) byClass.set(s.class_id, { id: s.class_id, name: s.class_name, cycle: s.cycle, items: [] });
-    byClass.get(s.class_id).items.push(s);
+    if (!itemsByClass.has(s.class_id)) itemsByClass.set(s.class_id, []);
+    itemsByClass.get(s.class_id).push(s);
   }
-  const subjectButtons = (c) => html`<div class="grid">${c.items.map((s) => html`<a class="btn" href="#/notes/${s.id}" style="justify-content:space-between">
-    <span>${s.subject_name}</span><span class="muted small">coef. ${fmtNum(s.coefficient)}</span></a>`)}</div>`;
-  view.innerHTML = html`
-    <div class="page-head"><div><h1>Saisie des notes</h1>
-      <p class="muted">La période se change en haut de l'écran.</p></div></div>
-    ${byClass.size ? [...byClass.values()].map((c) => html`<div class="card"><h2>${c.name}</h2>
-      ${c.cycle === 'primaire' ? html`
-        <p class="muted small">Une composition se saisit en une fois : tous les élèves, toutes les matières.</p>
-        <a class="btn primary" href="#/composition/${c.id}">Saisir une composition</a>
-        <details class="panel" style="margin:14px 0 0"><summary>Saisir matière par matière (devoirs, compositions)</summary>${subjectButtons(c)}</details>`
-        : subjectButtons(c)}
-    </div>`) : html`<p class="empty">${isAdmin()
-      ? 'Aucune matière à noter. Ajoutez des matières à vos classes.'
-      : "Aucune classe ni matière ne vous est attribuée. Demandez à l'administrateur de vous affecter à votre classe."}</p>`}`.s;
+  const canCompose = (c) => c.cycle === 'primaire' && (admin || c.main_teacher_id === state.me.user.id);
+  const anyCompose = overview.classes.some(canCompose);
+  let mode = anyCompose && safeGet('ndamely.gradeMode') !== 'matiere' ? 'composition' : 'matiere';
+  const ready = overview.classes.filter((c) => c.students > 0 && c.subjects > 0);
+  const waiting = overview.classes.filter((c) => !(c.students > 0 && c.subjects > 0));
+  const year = currentYear();
+  const periodName = overview.period?.name ?? '';
+
+  const progress = (c) => {
+    const items = itemsByClass.get(c.id) ?? [];
+    const done = items.filter((s) => graded.has(s.id)).length;
+    const total = items.length;
+    const status = !done ? ['todo', 'Aucune note saisie'] : done < total ? ['partial', 'Saisie en cours'] : ['done', 'Saisie terminée'];
+    return html`<div class="grade-progress ${status[0]}">
+      <div class="gp-top"><span>${icon(status[0] === 'done' ? 'check' : 'clock')}${status[1]}</span><strong>${done} / ${total} matière${total > 1 ? 's' : ''}</strong></div>
+      <div class="meter ${status[0] === 'done' ? 'ok' : 'warn'}"><i style="width:${total ? (done * 100) / total : 0}%"></i></div>
+    </div>`;
+  };
+  const subjectList = (c) => html`<div class="subject-picks">${(itemsByClass.get(c.id) ?? []).map((s) => html`<a class="subject-pick ${graded.has(s.id) ? 'done' : ''}" href="#/notes/${s.id}">
+    ${icon(graded.has(s.id) ? 'check' : 'circle')}<span>${s.subject_name}</span><small>coef. ${fmtNum(s.coefficient)}${s.teacher_name && c.cycle !== 'primaire' ? ` · ${s.teacher_name}` : ''}</small></a>`)}</div>`;
+  const actions = (c) => {
+    const compose = canCompose(c);
+    const subjectsBtn = html`<button class="btn ${!compose || mode === 'matiere' ? 'primary' : ''}" type="button" data-subjects="${c.id}">${icon('subjects')}Matière par matière</button>`;
+    const composeBtn = compose ? html`<a class="btn ${mode === 'composition' ? 'primary' : ''}" href="#/composition/${c.id}">${icon('dashboard')}Saisir une composition${mode === 'composition' ? icon('arrow') : ''}</a>` : '';
+    return mode === 'composition' ? html`${subjectsBtn}${composeBtn}` : html`${composeBtn}${subjectsBtn}`;
+  };
+
+  const render2 = () => {
+    view.innerHTML = html`
+      <div class="page-head">
+        <div class="title-with-icon"><span class="title-icon">${icon('notes')}</span>
+          <div><h1>Saisie des notes</h1><p class="muted">Choisissez une classe, puis la façon de saisir.</p></div></div>
+        ${periodName ? html`<span class="period-chip">${icon('calendar')}${periodName}${year ? ` · ${year.label}` : ''}</span>` : ''}
+      </div>
+
+      ${anyCompose ? html`<div class="mode-cards" role="radiogroup" aria-label="Façon de saisir">
+        <button type="button" class="mode-card ${mode === 'composition' ? 'on' : ''}" data-mode="composition" role="radio" aria-checked="${mode === 'composition'}">
+          <span class="mode-icon">${icon('dashboard')}</span>
+          <span><strong>Composition complète <span class="pill">Recommandé</span></strong>
+            <span>Tous les élèves et toutes les matières en une seule fois, dans un même tableau.</span></span></button>
+        <button type="button" class="mode-card ${mode === 'matiere' ? 'on' : ''}" data-mode="matiere" role="radio" aria-checked="${mode === 'matiere'}">
+          <span class="mode-icon">${icon('subjects')}</span>
+          <span><strong>Matière par matière</strong>
+            <span>Une matière à la fois, pour les devoirs ou les compositions.</span></span></button>
+      </div>` : ''}
+
+      ${overview.classes.length ? html`
+      ${ready.length ? html`<h2 class="section-title">Prête${ready.length > 1 ? 's' : ''} pour la saisie <span class="count-dot">${ready.length}</span></h2>
+      <div class="ready-list">${ready.map((c) => html`<section class="card ready-card">
+        <div class="ready-row">
+          <span class="class-badge big">${c.name}</span>
+          <div class="ready-info"><strong>${c.name}</strong>
+            <div class="meta">
+              <span>${icon('user')}${c.main_teacher_name || (c.cycle === 'primaire' ? 'Maître à désigner' : 'Sans prof. principal')}</span>
+              <span>${icon('students')}${plural(c.students, 'élève')}</span>
+              <span>${icon('subjects')}${plural(c.subjects, 'matière')}</span>
+            </div></div>
+          ${progress(c)}
+          <div class="ready-actions">${actions(c)}</div>
+        </div>
+        <div class="subjects-panel" id="subjects-${c.id}" hidden>${subjectList(c)}</div>
+      </section>`)}</div>` : ''}
+
+      ${waiting.length ? html`<div class="section-head"><h2 class="section-title">En attente <span class="count-dot muted">${waiting.length}</span></h2>
+        <p class="muted small">Une classe est prête quand elle a des élèves inscrits et des matières.</p></div>
+      <div class="waiting-grid">${waiting.map((c) => html`<div class="card waiting-card">
+        <div class="wc-top"><strong>${c.name}</strong><span class="badge">En attente</span></div>
+        <ul>
+          ${!c.students ? html`<li class="warn">${icon('students')}0 élève inscrit</li>` : html`<li>${icon('students')}${plural(c.students, 'élève')}</li>`}
+          ${!c.subjects ? html`<li class="warn">${icon('subjects')}Aucune matière</li>` : ''}
+          ${c.main_teacher_name ? html`<li>${icon('user')}${c.main_teacher_name}</li>`
+            : html`<li class="warn">${icon('user')}${c.cycle === 'primaire' ? 'Maître à désigner' : 'Prof. principal à désigner'}</li>`}
+        </ul>
+        ${admin ? (!c.students
+          ? html`<a class="add-link" href="#/classes/${c.id}?onglet=eleves">${icon('plus')}Inscrire des élèves</a>`
+          : html`<a class="add-link" href="#/classes/${c.id}?onglet=matieres">${icon('plus')}Ajouter des matières</a>`) : ''}
+      </div>`)}</div>` : ''}`
+      : html`<div class="card"><p class="empty">${admin
+        ? 'Aucune classe pour cette année. Créez vos classes dans « Classes ».'
+        : "Aucune classe ni matière ne vous est attribuée. Demandez à l'administrateur de vous affecter à votre classe."}</p></div>`}`.s;
+
+    $$('[data-mode]', view).forEach((b) => (b.onclick = () => {
+      mode = b.dataset.mode;
+      safeSet('ndamely.gradeMode', mode);
+      render2();
+    }));
+    $$('[data-subjects]', view).forEach((b) => (b.onclick = () => {
+      const panel = $(`#subjects-${b.dataset.subjects}`, view);
+      panel.hidden = !panel.hidden;
+      b.setAttribute('aria-expanded', !panel.hidden);
+    }));
+  };
+  render2();
 }
 
 function parseGrade(text, scale) {
