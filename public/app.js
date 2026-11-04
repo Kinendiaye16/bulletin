@@ -1281,6 +1281,26 @@ async function viewBulletins(view, [classId], query) {
   window.addEventListener('hashchange', () => { document.title = 'Ndamely — Gestion scolaire'; }, { once: true });
 }
 
+/** En-tête officiel des bulletins (aussi affiché en aperçu dans la page Établissement). */
+function bulletinHeader(school, yearLabel, className) {
+  return html`<header class="b-head">
+    <div class="rep">
+      <strong>RÉPUBLIQUE DU SÉNÉGAL</strong><br>Un Peuple – Un But – Une Foi
+      <div class="flag"><i style="background:#00853f"></i><i style="background:#fdef42"></i><i style="background:#e31b23"></i></div>
+      Ministère de l'Éducation nationale<br>
+      ${school.academy ? html`Inspection d'Académie de ${school.academy}<br>` : ''}
+      ${school.ief ? html`IEF de ${school.ief}` : ''}
+    </div>
+    <div class="school">
+      <strong>${school.name}</strong>
+      ${school.motto ? html`<em>${school.motto}</em><br>` : ''}
+      ${school.address}${school.city ? ` — ${school.city}` : ''}<br>
+      ${school.phone ? `Tél. : ${school.phone}` : ''}${school.email ? ` · ${school.email}` : ''}
+    </div>
+    <div class="meta">Année scolaire<br><strong>${yearLabel}</strong><br><br>Classe : <strong>${className}</strong></div>
+  </header>`;
+}
+
 function bulletinPage(d, b) {
   const { school, class: c, period, subjects, stats } = d;
   const s = b.student;
@@ -1291,22 +1311,7 @@ function bulletinPage(d, b) {
   const tick = (on) => html`<span class="box">${on ? '✓' : ''}</span>`;
   const distinctions = ["Tableau d'honneur", 'Encouragements', 'Félicitations', 'Avertissement'];
   return html`<section class="bulletin">
-    <header class="b-head">
-      <div class="rep">
-        <strong>RÉPUBLIQUE DU SÉNÉGAL</strong><br>Un Peuple – Un But – Une Foi
-        <div class="flag"><i style="background:#00853f"></i><i style="background:#fdef42"></i><i style="background:#e31b23"></i></div>
-        Ministère de l'Éducation nationale<br>
-        ${school.academy ? html`Inspection d'Académie de ${school.academy}<br>` : ''}
-        ${school.ief ? html`IEF de ${school.ief}` : ''}
-      </div>
-      <div class="school">
-        <strong>${school.name}</strong>
-        ${school.motto ? html`<em>${school.motto}</em><br>` : ''}
-        ${school.address}${school.city ? ` — ${school.city}` : ''}<br>
-        ${school.phone ? `Tél. : ${school.phone}` : ''}${school.email ? ` · ${school.email}` : ''}
-      </div>
-      <div class="meta">Année scolaire<br><strong>${c.year_label}</strong><br><br>Classe : <strong>${c.name}</strong></div>
-    </header>
+    ${bulletinHeader(school, c.year_label, c.name)}
 
     <div class="b-title"><h1>Bulletin de notes — ${period.name}</h1></div>
 
@@ -1525,8 +1530,12 @@ async function viewTeachers(view) {
 
 // =============================================================== établissement
 
+let schoolSavedAt = null; // heure du dernier enregistrement, affichée sous le formulaire
+
 async function viewSchool(view) {
   const { school, years } = state.me;
+  const savedAt = schoolSavedAt;
+  schoolSavedAt = null;
   view.innerHTML = html`
     <div class="page-head"><div><h1>Établissement</h1><p class="muted">Ces informations apparaissent en en-tête des bulletins.</p></div></div>
     <div class="card"><form id="f" class="stack">
@@ -1550,8 +1559,14 @@ async function viewSchool(view) {
           ['3', '(Moyenne des devoirs + 3 × Composition) ÷ 4'],
         ], school.compo_weight)}`}
       <p class="form-error" hidden></p>
-      <div><button class="btn primary" type="submit">Enregistrer</button></div>
+      <div class="row"><button class="btn primary" type="submit">Enregistrer</button>
+        ${savedAt ? html`<span class="saved-note">✓ Informations enregistrées à ${savedAt}</span>` : ''}</div>
     </form></div>
+
+    <div class="card"><h2>Aperçu de l'en-tête des bulletins</h2>
+      <p class="small muted">Voici comment ces informations apparaissent en haut de chaque bulletin.</p>
+      <div class="bulletin preview">${bulletinHeader(school, years.find((y) => y.id === state.me.activeYearId)?.label ?? '', isPrimarySchool() ? 'CI A' : '6e A')}</div>
+    </div>
 
     <div class="card"><h2>Années scolaires</h2>
       <div class="table-wrap"><table class="data">
@@ -1574,6 +1589,7 @@ async function viewSchool(view) {
     await api('PUT', '/api/school', data);
     await loadMe();
     toast('Informations enregistrées.');
+    schoolSavedAt = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     render();
   });
   bindForm($('#y'), async (data) => {
