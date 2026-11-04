@@ -1475,14 +1475,12 @@ async function viewSchool(view) {
         ${field('Téléphone', 'phone', { type: 'tel', value: school.phone })}
         ${field('E-mail', 'email', { type: 'email', value: school.email })}
       </div>
-      <h3>Règle de calcul</h3>
-      ${hasPrimary() ? html`<p class="small muted" style="margin:0">À l'élémentaire, la moyenne de chaque matière est la moyenne des compositions : les devoirs ne comptent pas.</p>` : ''}
       ${isPrimarySchool() ? html`<input type="hidden" name="compo_weight" value="${school.compo_weight}">`
-        : selectField(hasPrimary() ? 'Moyenne de chaque matière au collège et au lycée' : 'Moyenne de chaque matière', 'compo_weight', [
+        : html`<h3>Règle de calcul</h3>${selectField(hasPrimary() ? 'Moyenne de chaque matière au collège et au lycée' : 'Moyenne de chaque matière', 'compo_weight', [
           ['1', '(Moyenne des devoirs + Composition) ÷ 2'],
           ['2', '(Moyenne des devoirs + 2 × Composition) ÷ 3'],
           ['3', '(Moyenne des devoirs + 3 × Composition) ÷ 4'],
-        ], school.compo_weight)}
+        ], school.compo_weight)}`}
       <p class="form-error" hidden></p>
       <div><button class="btn primary" type="submit">Enregistrer</button></div>
     </form></div>
