@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Ndamely">
+  <rect width="64" height="64" rx="15" fill="#0b6b3a"/>
+  <!-- Trois marches de progression, l'étoile au sommet -->
+  <rect x="13" y="37" width="9" height="13" rx="2.5" fill="#d9eadf"/>
+  <rect x="27.5" y="29" width="9" height="21" rx="2.5" fill="#ffffff" opacity="0.9"/>
+  <rect x="42" y="25" width="9" height="25" rx="2.5" fill="#ffffff"/>
+  <polygon transform="translate(46.5 14) scale(8)" fill="#f2c94c"
+    points="0,-1 0.247,-0.34 0.951,-0.309 0.399,0.13 0.588,0.809 0,0.42 -0.588,0.809 -0.399,0.13 -0.951,-0.309 -0.247,-0.34"/>
+</svg>
