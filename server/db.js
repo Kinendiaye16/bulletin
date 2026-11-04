@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS schools (
   ief           TEXT NOT NULL DEFAULT '',  -- Inspection de l'Éducation et de la Formation
   director_name TEXT NOT NULL DEFAULT '',
   status        TEXT NOT NULL DEFAULT 'prive' CHECK (status IN ('public', 'prive')),
+  school_type   TEXT NOT NULL DEFAULT 'secondaire', -- primaire, secondaire (collège/lycée) ou mixte
   compo_weight  REAL NOT NULL DEFAULT 1,   -- poids de la composition face à la moyenne des devoirs
   created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -88,6 +89,13 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   UNIQUE (class_id, subject_id)
 );
 
+-- Matières qu'un professeur enseigne (collège et lycée)
+CREATE TABLE IF NOT EXISTS teacher_subjects (
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, subject_id)
+);
+
 CREATE TABLE IF NOT EXISTS students (
   id             INTEGER PRIMARY KEY,
   school_id      INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -140,6 +148,12 @@ CREATE INDEX IF NOT EXISTS idx_enrollments_class ON enrollments(class_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_cs ON evaluations(class_subject_id, period_id);
 CREATE INDEX IF NOT EXISTS idx_classes_year ON classes(year_id);
 `);
+
+// Migrations des bases créées avant l'ajout de colonnes
+const schoolColumns = db.prepare('PRAGMA table_info(schools)').all().map((c) => c.name);
+if (!schoolColumns.includes('school_type')) {
+  db.exec("ALTER TABLE schools ADD COLUMN school_type TEXT NOT NULL DEFAULT 'secondaire'");
+}
 
 export function tx(fn) {
   db.exec('BEGIN');

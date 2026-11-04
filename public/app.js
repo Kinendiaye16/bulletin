@@ -349,7 +349,7 @@ async function viewRegister(view) {
       <div class="form-grid">
         ${field('Ville', 'city', { placeholder: 'Ex. : Thiès' })}
         ${selectField('Statut', 'status', [['prive', 'Privé'], ['public', 'Public']])}
-        ${selectField("Niveaux d'enseignement", 'schoolType', [['secondaire', 'Moyen et secondaire'], ['primaire', 'Élémentaire'], ['mixte', 'Élémentaire, moyen et secondaire']])}
+        ${selectField("Niveaux d'enseignement", 'schoolType', [['secondaire', 'Collège et lycée'], ['primaire', 'Élémentaire (CI – CM2)'], ['mixte', 'Élémentaire, collège et lycée']])}
         ${selectField("Découpage de l'année", 'periodType', [['semestre', 'Semestres'], ['trimestre', 'Trimestres']])}
       </div>
       <h3>Votre compte (direction)</h3>
@@ -430,7 +430,7 @@ async function viewClasses(view) {
         <div class="form-grid">
           ${field('Nom de la classe', 'name', { required: true, placeholder: 'Ex. : 6e A' })}
           ${field('Niveau', 'level', { placeholder: 'Ex. : 6e, CM2, Tle S2' })}
-          ${selectField('Cycle', 'cycle', CYCLES)}
+          ${selectField('Cycle', 'cycle', CYCLES, state.me.school.school_type === 'primaire' ? 'primaire' : 'moyen')}
           ${selectField('Barème', 'scale', [['', 'Automatique (sur 10 à l\'élémentaire, sur 20 sinon)'], ['20', 'Notes sur 20'], ['10', 'Notes sur 10']])}
           ${selectField('Professeur principal / maître', 'main_teacher_id', teacherOptions(users))}
         </div>
@@ -438,7 +438,7 @@ async function viewClasses(view) {
         <div><button class="btn primary" type="submit">Créer la classe</button></div>
       </form></details>` : ''}
     ${classes.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>Classe</th><th>Cycle</th><th>Barème</th><th>Professeur principal</th><th class="num">Élèves</th><th></th></tr></thead>
+      <thead><tr><th>Classe</th><th>Cycle</th><th>Barème</th><th>Prof. principal / maître</th><th class="num">Élèves</th><th></th></tr></thead>
       <tbody>${classes.map((c) => html`<tr>
         <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a> <span class="muted small">${c.level}</span></td>
         <td>${CYCLES.find(([k]) => k === c.cycle)?.[1].split(' (')[0]}</td>
@@ -468,7 +468,7 @@ async function viewClass(view, [id], query) {
   const canBulletins = isAdmin() || c.main_teacher_id === state.me.user.id;
   view.innerHTML = html`
     <div class="page-head">
-      <div><h1>${c.name}</h1><p class="muted">${c.level} · ${c.year_label} · notes sur ${c.scale}${c.main_teacher_name ? ` · Prof. principal : ${c.main_teacher_name}` : ''}</p></div>
+      <div><h1>${c.name}</h1><p class="muted">${c.level} · ${c.year_label} · notes sur ${c.scale}${c.main_teacher_name ? ` · ${c.cycle === 'primaire' ? 'Maître' : 'Prof. principal'} : ${c.main_teacher_name}` : ''}</p></div>
       <div class="row">
         <a class="btn" href="#/resultats/${c.id}">Résultats</a>
         ${canBulletins ? html`<a class="btn primary" href="#/bulletins/${c.id}?periode=${state.periodId}">Bulletins</a>` : ''}
@@ -566,29 +566,47 @@ function renderStudents(el, c) {
   }));
 }
 
+// Liste des enseignants pour une matière : ceux qui l'enseignent d'abord, puis le reste de l'équipe.
+function subjectTeacherOptions(users, subjectId, selected) {
+  const specialists = users.filter((u) => u.subject_ids.includes(Number(subjectId)));
+  const others = users.filter((u) => !specialists.includes(u));
+  const opt = (u) => html`<option value="${u.id}" ${raw(String(u.id) === String(selected ?? '') ? 'selected' : '')}>${u.name}</option>`;
+  return html`<option value="">— Aucun —</option>
+    ${specialists.length ? html`<optgroup label="Enseignent cette matière">${specialists.map(opt)}</optgroup>` : ''}
+    ${others.length ? html`<optgroup label="${specialists.length ? 'Autres membres' : 'Équipe'}">${others.map(opt)}</optgroup>` : ''}`;
+}
+
 function renderClassSubjects(el, c, users, subjects) {
   const admin = isAdmin();
+  const primary = c.cycle === 'primaire';
   const available = subjects.filter((s) => !c.subjects.some((cs) => cs.subject_id === s.id));
   const totalCoef = c.subjects.reduce((s, x) => s + x.coefficient, 0);
+  const missing = c.subjects.filter((s) => !s.teacher_id).length;
+  const settingsLink = html`<a href="#/classes/${c.id}?onglet=parametres">paramètres de la classe</a>`;
   el.innerHTML = html`
+    ${primary ? html`<div class="alert">${c.main_teacher_name
+      ? html`À l'élémentaire, un seul maître enseigne toutes les matières : <strong>${c.main_teacher_name}</strong> saisit les notes de toute la classe. Pour changer de maître, passez par les ${settingsLink}.`
+      : html`À l'élémentaire, un seul maître enseigne toutes les matières. ${admin ? html`Désignez-le dans les ${settingsLink}.` : ''}`}</div>`
+      : admin && c.subjects.length && missing ? html`<div class="alert">${missing} matière(s) sans professeur : choisissez l'enseignant de chaque matière ci-dessous.</div>` : ''}
     ${admin && available.length ? html`<details class="panel" ${raw(c.subjects.length ? '' : 'open')}><summary>+ Ajouter une matière</summary>
       <form id="add" class="stack">
         <div class="form-grid">
           ${selectField('Matière', 'subject_id', available.map((s) => [s.id, `${s.name} (coef. ${fmtNum(s.default_coefficient)})`]), '', { required: true })}
           ${field('Coefficient', 'coefficient', { inputmode: 'decimal', placeholder: 'Par défaut' })}
-          ${selectField('Enseignant', 'teacher_id', teacherOptions(users))}
+          ${primary ? '' : html`<label class="field"><span>Professeur</span><select name="teacher_id" id="add-teacher"></select></label>`}
         </div>
         <p class="form-error" hidden></p>
         <div class="row"><button class="btn primary" type="submit">Ajouter</button>
           <button class="btn" type="button" id="all">Ajouter toutes les matières (${available.length})</button></div>
       </form></details>` : ''}
     ${c.subjects.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>Matière</th><th>Coefficient</th><th>Enseignant</th>${admin ? html`<th></th>` : ''}</tr></thead>
+      <thead><tr><th>Matière</th><th>Coefficient</th><th>${primary ? 'Maître' : 'Professeur'}</th>${admin ? html`<th></th>` : ''}</tr></thead>
       <tbody>${c.subjects.map((s) => html`<tr data-cs="${s.id}">
         <td><strong>${s.name}</strong></td>
         <td style="width:120px">${admin ? html`<input name="coefficient" value="${fmtNum(s.coefficient)}" inputmode="decimal" aria-label="Coefficient">` : fmtNum(s.coefficient)}</td>
-        <td>${admin ? html`<select name="teacher_id" aria-label="Enseignant">${teacherOptions(users).map(([v, l]) =>
-          html`<option value="${v}" ${raw(String(v) === String(s.teacher_id ?? '') ? 'selected' : '')}>${l}</option>`)}</select>` : s.teacher_name || '—'}</td>
+        <td>${admin && !primary
+          ? html`<select name="teacher_id" aria-label="Professeur de ${s.name}">${subjectTeacherOptions(users, s.subject_id, s.teacher_id)}</select>`
+          : s.teacher_name || html`<span class="muted">—</span>`}</td>
         ${admin ? html`<td class="actions"><button class="btn sm danger" data-del="${s.id}">Retirer</button></td>` : ''}
       </tr>`)}</tbody>
       <tfoot><tr><td><strong>Total des coefficients</strong></td><td><strong>${fmtNum(totalCoef)}</strong></td><td colspan="2"></td></tr></tfoot>
@@ -597,6 +615,16 @@ function renderClassSubjects(el, c, users, subjects) {
 
   const addForm = $('#add', el);
   if (addForm) {
+    // Le choix du professeur suit la matière sélectionnée ; s'il est seul à l'enseigner, il est présélectionné.
+    const teacherSelect = $('#add-teacher', el);
+    const subjectSelect = $('[name=subject_id]', addForm);
+    const refreshTeachers = () => {
+      if (!teacherSelect) return;
+      const specialists = users.filter((u) => u.subject_ids.includes(Number(subjectSelect.value)));
+      teacherSelect.innerHTML = subjectTeacherOptions(users, subjectSelect.value, specialists.length === 1 ? specialists[0].id : '').s;
+    };
+    subjectSelect.addEventListener('change', refreshTeachers);
+    refreshTeachers();
     bindForm(addForm, async (data) => {
       await api('POST', `/api/classes/${c.id}/subjects`, data);
       toast('Matière ajoutée.');
@@ -613,7 +641,7 @@ function renderClassSubjects(el, c, users, subjects) {
       try {
         await api('PUT', `/api/class-subjects/${tr.dataset.cs}`, {
           coefficient: $('[name=coefficient]', tr).value,
-          teacher_id: $('[name=teacher_id]', tr).value,
+          teacher_id: $('[name=teacher_id]', tr)?.value ?? '',
         });
         toast('Enregistré.');
       } catch (e) {
@@ -621,7 +649,7 @@ function renderClassSubjects(el, c, users, subjects) {
       }
     };
     $('[name=coefficient]', tr).addEventListener('change', save);
-    $('[name=teacher_id]', tr).addEventListener('change', save);
+    $('[name=teacher_id]', tr)?.addEventListener('change', save);
   });
   $$('[data-del]', el).forEach((b) => (b.onclick = async () => {
     if (!confirm('Retirer cette matière de la classe ? Toutes les notes de cette matière seront supprimées.')) return;
@@ -945,6 +973,7 @@ function bulletinPage(d, b) {
   const { school, class: c, period, subjects, stats } = d;
   const s = b.student;
   const scale = c.scale;
+  const primary = c.cycle === 'primaire'; // un seul maître : pas de colonne « Professeur »
   const tick = (on) => html`<span class="box">${on ? '✓' : ''}</span>`;
   const distinctions = ["Tableau d'honneur", 'Encouragements', 'Félicitations', 'Avertissement'];
   return html`<section class="bulletin">
@@ -973,13 +1002,13 @@ function bulletinPage(d, b) {
       <div><span>Né(e) le :</span>${s.birth_date || '—'}${s.birth_place ? ` à ${s.birth_place}` : ''}</div>
       <div><span>Sexe :</span>${s.sex === 'F' ? 'Féminin' : 'Masculin'}</div>
       <div><span>Effectif de la classe :</span>${stats.count}</div>
-      <div><span>Professeur principal :</span>${c.main_teacher_name || '—'}</div>
+      <div><span>${primary ? 'Maître / maîtresse :' : 'Professeur principal :'}</span>${c.main_teacher_name || '—'}</div>
     </div>
 
     <table class="b-grades">
       <thead><tr>
         <th style="text-align:left">Matières</th><th>Coef.</th><th>Moy. devoirs</th><th>Compo.</th>
-        <th>Moy. /${scale}</th><th>Moy. × coef.</th><th>Rang</th><th style="text-align:left">Appréciation</th><th style="text-align:left">Professeur</th>
+        <th>Moy. /${scale}</th><th>Moy. × coef.</th><th>Rang</th><th style="text-align:left">Appréciation</th>${primary ? '' : html`<th style="text-align:left">Professeur</th>`}
       </tr></thead>
       <tbody>${subjects.map((sub) => {
         const r = s.subjects[sub.id];
@@ -987,11 +1016,11 @@ function bulletinPage(d, b) {
           <td>${sub.name}</td><td class="n">${fmtNum(sub.coefficient)}</td>
           <td class="n">${fmt(r.devoirs)}</td><td class="n">${fmt(r.composition)}</td>
           <td class="n"><strong>${fmt(r.average)}</strong></td><td class="n">${fmt(r.weighted)}</td>
-          <td class="n">${rankLabel(r.rank, r.tie, s.sex)}</td><td>${r.appreciation}</td><td>${sub.teacher_name || ''}</td>
+          <td class="n">${rankLabel(r.rank, r.tie, s.sex)}</td><td>${r.appreciation}</td>${primary ? '' : html`<td>${sub.teacher_name || ''}</td>`}
         </tr>`;
       })}</tbody>
       <tfoot><tr><td>Totaux</td><td class="n">${fmtNum(s.totalCoef)}</td><td></td><td></td><td></td>
-        <td class="n">${fmt(s.totalPoints)}</td><td colspan="3"></td></tr></tfoot>
+        <td class="n">${fmt(s.totalPoints)}</td><td colspan="${primary ? 2 : 3}"></td></tr></tfoot>
     </table>
 
     <div class="b-summary">
@@ -1026,7 +1055,7 @@ function bulletinPage(d, b) {
     </div>
 
     <div class="b-sign">
-      <div>Le professeur principal<br><small>${c.main_teacher_name || ''}</small></div>
+      <div>${primary ? 'Le maître / La maîtresse' : 'Le professeur principal'}<br><small>${c.main_teacher_name || ''}</small></div>
       <div>Le chef d'établissement<br><small>${school.director_name}</small></div>
       <div>Signature du parent</div>
     </div>
@@ -1086,32 +1115,52 @@ function tempPassword() {
   return [...bytes].map((b) => chars[b % chars.length]).join('');
 }
 
+function subjectChecks(subjects, selected = []) {
+  return html`<fieldset class="checks"><legend>Matière(s) enseignée(s)</legend>
+    ${subjects.map((s) => html`<label><input type="checkbox" name="subject_ids" value="${s.id}" ${raw(selected.includes(s.id) ? 'checked' : '')}>${s.name}</label>`)}
+  </fieldset>`;
+}
+
 async function viewTeachers(view) {
-  const users = await api('GET', '/api/users');
+  // Au collège et au lycée, chaque professeur a sa ou ses matières ; à l'élémentaire, un maître par classe.
+  const hasSecondary = state.me.school.school_type !== 'primaire';
+  const [users, subjects] = await Promise.all([api('GET', '/api/users'), hasSecondary ? api('GET', '/api/subjects') : []]);
+  const subjectName = new Map(subjects.map((s) => [s.id, s.name]));
+  const withSubjects = (data, form) => ({ ...data, subject_ids: new FormData(form).getAll('subject_ids') });
+
   view.innerHTML = html`
     <div class="page-head"><div><h1>Équipe</h1>
-      <p class="muted">Les enseignants saisissent les notes de leurs matières. La direction gère les classes et imprime les bulletins.</p></div></div>
+      <p class="muted">${hasSecondary
+        ? "Au collège et au lycée, indiquez la ou les matières de chaque professeur : ils seront proposés en priorité quand vous affecterez un professeur à chaque matière d'une classe."
+        : "À l'élémentaire, chaque classe a un seul maître, qui enseigne toutes les matières. Ajoutez les maîtres ici, puis affectez-les à leur classe dans les paramètres de la classe."}
+      ${state.me.school.school_type === 'mixte' ? " À l'élémentaire, le maître de la classe enseigne toutes les matières." : ''}</p></div></div>
     <details class="panel" ${raw(users.length < 2 ? 'open' : '')}><summary>+ Ajouter un membre</summary>
       <form id="f" class="stack"><div class="form-grid">
         ${field('Prénom et nom', 'name', { required: true })}
         ${field('Adresse e-mail (identifiant)', 'email', { type: 'email', required: true })}
         ${field('Téléphone', 'phone', { type: 'tel', inputmode: 'tel' })}
-        ${selectField('Rôle', 'role', [['enseignant', 'Enseignant'], ['admin', 'Direction / secrétariat']])}
+        ${selectField('Rôle', 'role', [['enseignant', hasSecondary ? 'Enseignant / professeur' : 'Maître / maîtresse'], ['admin', 'Direction / secrétariat']])}
         ${field('Mot de passe provisoire', 'password', { required: true, value: tempPassword() })}
       </div>
+      ${hasSecondary ? subjectChecks(subjects) : ''}
       <p class="small muted">Communiquez ce mot de passe à la personne ; vous pourrez le réinitialiser à tout moment.</p>
       <p class="form-error" hidden></p><div><button class="btn primary" type="submit">Ajouter</button></div></form>
     </details>
     <div class="table-wrap"><table class="data">
-      <thead><tr><th>Nom</th><th>E-mail</th><th>Téléphone</th><th>Rôle</th><th></th></tr></thead>
+      <thead><tr><th>Nom</th>${hasSecondary ? html`<th>Matière(s)</th>` : ''}<th>Classes</th><th>Contact</th><th>Rôle</th><th></th></tr></thead>
       <tbody>${users.map((u) => html`<tr>
-        <td><strong>${u.name}</strong></td><td>${u.email}</td><td class="nowrap">${u.phone}</td>
+        <td><strong>${u.name}</strong></td>
+        ${hasSecondary ? html`<td class="small">${u.subject_ids.map((id) => subjectName.get(id)).filter(Boolean).join(', ') || html`<span class="muted">—</span>`}</td>` : ''}
+        <td class="small">${u.main_of ? html`<div>Prof. principal / maître : <strong>${u.main_of.split(',').join(', ')}</strong></div>` : ''}
+          ${u.classes_taught ? html`<div>Enseigne en : ${u.classes_taught.split(',').join(', ')}</div>` : ''}
+          ${!u.main_of && !u.classes_taught ? html`<span class="muted">—</span>` : ''}</td>
+        <td class="small">${u.email}<br>${u.phone}</td>
         <td><span class="badge ${u.role === 'admin' ? 'green' : ''}">${u.role === 'admin' ? 'Direction' : 'Enseignant'}</span></td>
         <td class="actions"><button class="btn sm" data-edit="${u.id}">Modifier</button>
           ${u.id !== state.me.user.id ? html`<button class="btn sm danger" data-del="${u.id}">Supprimer</button>` : ''}</td>
       </tr>`)}</tbody></table></div>`.s;
-  bindForm($('#f'), async (data) => {
-    await api('POST', '/api/users', data);
+  bindForm($('#f'), async (data, form) => {
+    await api('POST', '/api/users', withSubjects(data, form));
     toast('Membre ajouté.');
     render();
   });
@@ -1121,9 +1170,10 @@ async function viewTeachers(view) {
       title: u.name,
       body: html`${field('Prénom et nom', 'name', { required: true, value: u.name })}
         ${field('Téléphone', 'phone', { type: 'tel', value: u.phone })}
+        ${hasSecondary ? subjectChecks(subjects, u.subject_ids) : ''}
         ${field('Nouveau mot de passe (laisser vide pour ne pas changer)', 'password', { autocomplete: 'new-password' })}`,
-      onSubmit: async (data) => {
-        await api('PUT', `/api/users/${u.id}`, data);
+      onSubmit: async (data, form) => {
+        await api('PUT', `/api/users/${u.id}`, hasSecondary ? withSubjects(data, form) : data);
         toast('Enregistré.');
         render();
       },
@@ -1147,6 +1197,7 @@ async function viewSchool(view) {
       <div class="form-grid">
         ${field("Nom de l'établissement", 'name', { required: true, value: school.name })}
         ${selectField('Statut', 'status', [['prive', 'Privé'], ['public', 'Public']], school.status)}
+        ${selectField("Niveaux d'enseignement", 'school_type', [['secondaire', 'Collège et lycée'], ['primaire', 'Élémentaire (CI – CM2)'], ['mixte', 'Élémentaire, collège et lycée']], school.school_type)}
         ${field('Devise', 'motto', { value: school.motto, placeholder: 'Ex. : Travail – Discipline – Réussite' })}
         ${field("Nom du chef d'établissement", 'director_name', { value: school.director_name })}
         ${field("Inspection d'Académie (IA)", 'academy', { value: school.academy, placeholder: 'Ex. : Dakar' })}

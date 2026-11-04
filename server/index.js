@@ -10,6 +10,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const SESSION_MS = 30 * 24 * 3600 * 1000;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === '1' ? '; Secure' : '';
 const MAX_BODY = 2 * 1024 * 1024;
+const SCHOOL_TYPES = ['primaire', 'secondaire', 'mixte'];
 
 // ---------------------------------------------------------------- outils
 
@@ -186,7 +187,7 @@ route('POST', '/api/auth/register', ({ body, ...ctx }) => {
   const { userId } = createSchool({
     schoolName: required(body.schoolName, "Le nom de l'établissement"),
     city: str(body.city, 80),
-    schoolType: ['primaire', 'secondaire', 'mixte'].includes(body.schoolType) ? body.schoolType : 'secondaire',
+    schoolType: SCHOOL_TYPES.includes(body.schoolType) ? body.schoolType : 'secondaire',
     status: body.status === 'public' ? 'public' : 'prive',
     periodType: body.periodType === 'trimestre' ? 'trimestre' : 'semestre',
     admin,
@@ -225,6 +226,9 @@ route('PUT', '/api/school', ({ user, body }) => {
     required(body.name, "Le nom de l'établissement"), str(body.city, 80), str(body.address), str(body.phone, 40),
     str(body.email, 120), str(body.motto, 120), str(body.academy, 120), str(body.ief, 120),
     str(body.director_name, 120), body.status === 'public' ? 'public' : 'prive', weight, user.school_id);
+  if (SCHOOL_TYPES.includes(body.school_type)) {
+    db.prepare('UPDATE schools SET school_type = ? WHERE id = ?').run(body.school_type, user.school_id);
+  }
   return schoolOf(user.school_id);
 });
 
@@ -312,22 +316,44 @@ route('DELETE', '/api/subjects/:id', ({ user, params }) => {
 // ---------------------------------------------------------------- utilisateurs
 
 route('GET', '/api/users', ({ user }) => db.prepare(`
-  SELECT id, name, email, phone, role, created_at FROM users WHERE school_id = ?
-  ORDER BY role, name COLLATE NOCASE`).all(user.school_id), 'user');
+  SELECT u.id, u.name, u.email, u.phone, u.role, u.created_at,
+    (SELECT GROUP_CONCAT(subject_id) FROM teacher_subjects WHERE user_id = u.id) AS subject_ids,
+    (SELECT GROUP_CONCAT(DISTINCT c.name) FROM class_subjects cs
+      JOIN classes c ON c.id = cs.class_id JOIN school_years y ON y.id = c.year_id
+      WHERE cs.teacher_id = u.id AND y.is_active = 1) AS classes_taught,
+    (SELECT GROUP_CONCAT(c.name) FROM classes c JOIN school_years y ON y.id = c.year_id
+      WHERE c.main_teacher_id = u.id AND y.is_active = 1) AS main_of
+  FROM users u WHERE u.school_id = ?
+  ORDER BY u.role, u.name COLLATE NOCASE`).all(user.school_id)
+  .map((u) => ({ ...u, subject_ids: u.subject_ids ? String(u.subject_ids).split(',').map(Number) : [] })), 'user');
+
+// Matières enseignées par un professeur : proposées en priorité lors de l'affectation aux classes.
+function setTeacherSubjects(userId, subjectIds, schoolId) {
+  if (!Array.isArray(subjectIds)) return;
+  const valid = db.prepare('SELECT id FROM subjects WHERE school_id = ?').all(schoolId).map((s) => s.id);
+  db.prepare('DELETE FROM teacher_subjects WHERE user_id = ?').run(userId);
+  const insert = db.prepare('INSERT OR IGNORE INTO teacher_subjects (user_id, subject_id) VALUES (?, ?)');
+  for (const id of subjectIds.map(Number)) if (valid.includes(id)) insert.run(userId, id);
+}
 
 route('POST', '/api/users', ({ user, body }) => {
   const e = email(body.email);
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(e)) fail(409, 'Un compte existe déjà avec cette adresse e-mail.');
-  const r = db.prepare('INSERT INTO users (school_id, name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?, ?)').run(
-    user.school_id, required(body.name, 'Le nom', 120), e, str(body.phone, 40), hashPassword(password(body.password)),
-    body.role === 'admin' ? 'admin' : 'enseignant');
-  return { id: Number(r.lastInsertRowid) };
+  return tx(() => {
+    const r = db.prepare('INSERT INTO users (school_id, name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?, ?)').run(
+      user.school_id, required(body.name, 'Le nom', 120), e, str(body.phone, 40), hashPassword(password(body.password)),
+      body.role === 'admin' ? 'admin' : 'enseignant');
+    const id = Number(r.lastInsertRowid);
+    setTeacherSubjects(id, body.subject_ids, user.school_id);
+    return { id };
+  });
 });
 
 route('PUT', '/api/users/:id', ({ user, params, body }) => {
   const target = db.prepare('SELECT * FROM users WHERE id = ? AND school_id = ?').get(toId(params.id), user.school_id);
   if (!target) fail(404, 'Utilisateur introuvable.');
   db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?').run(required(body.name, 'Le nom', 120), str(body.phone, 40), target.id);
+  setTeacherSubjects(target.id, body.subject_ids, user.school_id);
   if (body.password) {
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password(body.password)), target.id);
     db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(target.id, user.token);
@@ -393,6 +419,7 @@ route('PUT', '/api/classes/:id', ({ user, params, body }) => {
   const c = classInput(body, user);
   db.prepare('UPDATE classes SET name = ?, level = ?, cycle = ?, scale = ?, main_teacher_id = ? WHERE id = ?')
     .run(c.name, c.level, c.cycle, c.scale, c.mainTeacher, existing.id);
+  syncPrimaryTeacher(existing.id);
   return { ok: true };
 });
 
@@ -423,14 +450,28 @@ function teacherOfSchool(teacherId, user) {
 const nextPosition = (classId) =>
   db.prepare('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM class_subjects WHERE class_id = ?').get(classId).p;
 
+// À l'élémentaire, le maître de la classe enseigne toutes les matières.
+function syncPrimaryTeacher(classId) {
+  db.prepare(`UPDATE class_subjects SET teacher_id = (SELECT main_teacher_id FROM classes WHERE id = ?)
+    WHERE class_id = ? AND (SELECT cycle FROM classes WHERE id = ?) = 'primaire'`).run(classId, classId, classId);
+}
+
+// Au collège et au lycée, un professeur déclaré seul pour une matière y est affecté d'office.
+function onlySpecialist(subjectId, schoolId) {
+  const rows = db.prepare(`SELECT ts.user_id FROM teacher_subjects ts JOIN users u ON u.id = ts.user_id
+    WHERE ts.subject_id = ? AND u.school_id = ?`).all(subjectId, schoolId);
+  return rows.length === 1 ? rows[0].user_id : null;
+}
+
 route('POST', '/api/classes/:id/subjects', ({ user, params, body }) => {
   const c = loadClass(params.id, user);
   const s = subjectOfSchool(body.subject_id, user);
   if (db.prepare('SELECT 1 FROM class_subjects WHERE class_id = ? AND subject_id = ?').get(c.id, s.id)) fail(409, 'Cette matière est déjà dans la classe.');
   const coef = body.coefficient === undefined || body.coefficient === ''
     ? s.default_coefficient : num(body.coefficient, 'Le coefficient', { min: 0.5, max: 20 });
+  const teacher = c.cycle === 'primaire' ? c.main_teacher_id : teacherOfSchool(body.teacher_id, user);
   const r = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)')
-    .run(c.id, s.id, coef, teacherOfSchool(body.teacher_id, user), nextPosition(c.id));
+    .run(c.id, s.id, coef, teacher, nextPosition(c.id));
   return { id: Number(r.lastInsertRowid) };
 });
 
@@ -439,17 +480,21 @@ route('POST', '/api/classes/:id/subjects/all', ({ user, params }) => {
   const subjects = db.prepare(`SELECT * FROM subjects WHERE school_id = ? AND id NOT IN
     (SELECT subject_id FROM class_subjects WHERE class_id = ?) ORDER BY name COLLATE NOCASE`).all(user.school_id, c.id);
   tx(() => {
-    const insert = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, position) VALUES (?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO class_subjects (class_id, subject_id, coefficient, teacher_id, position) VALUES (?, ?, ?, ?, ?)');
     let pos = nextPosition(c.id);
-    for (const s of subjects) insert.run(c.id, s.id, s.default_coefficient, pos++);
+    for (const s of subjects) {
+      const teacher = c.cycle === 'primaire' ? c.main_teacher_id : onlySpecialist(s.id, user.school_id);
+      insert.run(c.id, s.id, s.default_coefficient, teacher, pos++);
+    }
   });
   return { added: subjects.length };
 });
 
 route('PUT', '/api/class-subjects/:id', ({ user, params, body }) => {
-  const { cs } = loadClassSubject(params.id, user);
+  const { cs, c } = loadClassSubject(params.id, user);
+  const teacher = c.cycle === 'primaire' ? c.main_teacher_id : teacherOfSchool(body.teacher_id, user);
   db.prepare('UPDATE class_subjects SET coefficient = ?, teacher_id = ? WHERE id = ?').run(
-    num(body.coefficient, 'Le coefficient', { min: 0.5, max: 20 }), teacherOfSchool(body.teacher_id, user), cs.id);
+    num(body.coefficient, 'Le coefficient', { min: 0.5, max: 20 }), teacher, cs.id);
   return { ok: true };
 });
 

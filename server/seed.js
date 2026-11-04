@@ -6,10 +6,12 @@ import { createSchool } from './school.js';
 
 export const DEMO = {
   admin: { name: 'Mariama Sall', email: 'directeur@demo.sn', password: 'demo-bulletin' },
+  // Professeurs du collège avec leurs matières, puis la maîtresse du CM2 (élémentaire : toutes les matières)
   teachers: [
-    { name: 'Ibrahima Ndiaye', email: 'ndiaye@demo.sn' },
-    { name: 'Aminata Fall', email: 'fall@demo.sn' },
-    { name: 'Ousmane Diallo', email: 'diallo@demo.sn' },
+    { name: 'Ibrahima Ndiaye', email: 'ndiaye@demo.sn', subjects: ['Mathématiques', 'Sciences physiques'] },
+    { name: 'Aminata Fall', email: 'fall@demo.sn', subjects: ['Français', 'Anglais'] },
+    { name: 'Ousmane Diallo', email: 'diallo@demo.sn', subjects: ['Sciences de la vie et de la Terre', 'Histoire et géographie', 'Éducation civique'] },
+    { name: 'Seynabou Faye', email: 'faye@demo.sn', subjects: [] },
   ],
   teacherPassword: 'demo-enseignant',
 };
@@ -48,6 +50,13 @@ tx(() => {
     "INSERT INTO users (school_id, name, email, password_hash, role) VALUES (?, ?, ?, ?, 'enseignant')",
   ).run(schoolId, t.name, t.email, hashPassword(DEMO.teacherPassword)).lastInsertRowid));
 
+  DEMO.teachers.forEach((t, i) => {
+    for (const name of t.subjects) {
+      db.prepare(`INSERT INTO teacher_subjects (user_id, subject_id)
+        SELECT ?, id FROM subjects WHERE school_id = ? AND name = ?`).run(teacherIds[i], schoolId, name);
+    }
+  });
+
   const year = db.prepare('SELECT * FROM school_years WHERE school_id = ? AND is_active = 1').get(schoolId);
   const periods = db.prepare('SELECT * FROM periods WHERE year_id = ? ORDER BY position').all(year.id);
   const subjectId = (name) => db.prepare('SELECT id FROM subjects WHERE school_id = ? AND name = ?').get(schoolId, name).id;
@@ -59,9 +68,9 @@ tx(() => {
     { name: '3e B', level: '3e', cycle: 'moyen', scale: 20, size: 24, main: 1,
       subjects: [['Français', 4, 1], ['Anglais', 2, 1], ['Espagnol', 2, null], ['Mathématiques', 4, 0], ['Sciences de la vie et de la Terre', 2, 2],
         ['Sciences physiques', 2, 0], ['Histoire et géographie', 3, 2], ['Éducation physique et sportive', 1, null]] },
-    { name: 'CM2 A', level: 'CM2', cycle: 'primaire', scale: 10, size: 30, main: 2,
-      subjects: [['Lecture', 2, 2], ['Expression écrite', 2, 2], ['Dictée', 1, 2], ['Grammaire et conjugaison', 1, 2], ['Calcul et mathématiques', 3, 2],
-        ['Histoire', 1, 2], ['Géographie', 1, 2], ["Sciences d'observation", 1, 2], ['Éducation civique', 1, 2]] },
+    { name: 'CM2 A', level: 'CM2', cycle: 'primaire', scale: 10, size: 30, main: 3,
+      subjects: [['Lecture', 2, 3], ['Expression écrite', 2, 3], ['Dictée', 1, 3], ['Grammaire et conjugaison', 1, 3], ['Calcul et mathématiques', 3, 3],
+        ['Histoire', 1, 3], ['Géographie', 1, 3], ["Sciences d'observation", 1, 3], ['Éducation civique', 1, 3]] },
   ];
 
   let matricule = 1;

@@ -189,6 +189,10 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
 textarea { min-height: 110px; resize: vertical; }
+fieldset.checks { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0; display: grid; gap: 6px 14px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+fieldset.checks legend { font-size: 0.85rem; font-weight: 600; color: var(--muted); padding: 0 4px; }
+fieldset.checks label { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; cursor: pointer; }
+fieldset.checks input { width: auto; accent-color: var(--primary); }
 .form-error { color: var(--danger); font-size: 0.85rem; margin: 0; }
 .alert { padding: 12px 14px; border-radius: 8px; background: var(--warning-soft); margin-bottom: 14px; }
 .alert.error { background: var(--danger-soft); color: var(--danger); }

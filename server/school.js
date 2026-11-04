@@ -40,8 +40,8 @@ export function createYear(schoolId, label, periodType = 'semestre', activate = 
 export function createSchool({ schoolName, city = '', schoolType = 'secondaire', status = 'prive', admin, periodType = 'semestre' }) {
   return tx(() => {
     const { lastInsertRowid } = db
-      .prepare('INSERT INTO schools (name, city, status, director_name) VALUES (?, ?, ?, ?)')
-      .run(schoolName, city, status, admin.name);
+      .prepare('INSERT INTO schools (name, city, status, school_type, director_name) VALUES (?, ?, ?, ?, ?)')
+      .run(schoolName, city, status, schoolType, admin.name);
     const schoolId = Number(lastInsertRowid);
     const { lastInsertRowid: userId } = db
       .prepare("INSERT INTO users (school_id, name, email, phone, password_hash, role) VALUES (?, ?, ?, ?, ?, 'admin')")
