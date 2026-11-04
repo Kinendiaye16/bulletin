@@ -329,8 +329,8 @@ function shell(opts) {
       ['#/enseignants', 'Équipe', 'team'],
     ] : []),
     ['#/classes', 'Classes', 'classes'],
-    ['#/notes', 'Saisie des notes', 'notes'],
     ...(admin ? [['#/matieres', 'Matières', 'subjects']] : []),
+    ['#/notes', 'Saisie des notes', 'notes'],
   ];
   return html`<div class="app ${opts.nav === '#/' ? 'on-dashboard' : ''}">
     <aside class="sidebar">
