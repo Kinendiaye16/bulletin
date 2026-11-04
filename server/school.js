@@ -37,11 +37,30 @@ export function createSchool({ schoolName, city = '', schoolType = 'secondaire',
       .run(schoolId, admin.name, admin.email, admin.phone || '', hashPassword(admin.password));
     createYear(schoolId, currentSchoolYearLabel(), periodType);
 
-    const lists = schoolType === 'mixte'
-      ? [...DEFAULT_SUBJECTS.primaire, ...DEFAULT_SUBJECTS.secondaire]
-      : DEFAULT_SUBJECTS[schoolType] || DEFAULT_SUBJECTS.secondaire;
-    const insert = db.prepare('INSERT OR IGNORE INTO subjects (school_id, name, default_coefficient, cycle) VALUES (?, ?, ?, ?)');
-    for (const [name, coef] of lists) insert.run(schoolId, name, coef, defaultSubjectCycle(name));
+    addDefaultSubjects(schoolId, schoolType);
     return { schoolId, userId: Number(userId) };
   });
+}
+
+/**
+ * Matières de départ des niveaux enseignés. Un niveau qui n'a encore aucune matière reçoit la liste par défaut :
+ * c'est le cas d'une école élémentaire qui ouvre un collège ou un lycée. Les matières existantes ne changent pas.
+ */
+export function addDefaultSubjects(schoolId, schoolType) {
+  const groups = schoolType === 'mixte' ? ['primaire', 'secondaire'] : [schoolType === 'primaire' ? 'primaire' : 'secondaire'];
+  const has = (cycles) => db.prepare(`SELECT 1 FROM subjects WHERE school_id = ? AND cycle IN (${cycles.map(() => '?').join(', ')})`)
+    .get(schoolId, ...cycles);
+  const insert = db.prepare('INSERT OR IGNORE INTO subjects (school_id, name, default_coefficient, cycle) VALUES (?, ?, ?, ?)');
+  const update = db.prepare("UPDATE subjects SET cycle = 'tous' WHERE school_id = ? AND name = ?");
+  let added = 0;
+  for (const g of groups) {
+    if (has(g === 'primaire' ? ['primaire'] : ['college', 'lycee', 'secondaire'])) continue;
+    for (const [name, coef] of DEFAULT_SUBJECTS[g]) {
+      const r = insert.run(schoolId, name, coef, defaultSubjectCycle(name));
+      // Une matière déjà présente sous le même nom (ex. Éducation civique) devient commune aux deux cycles.
+      if (r.changes) added++;
+      else if (groups.length > 1) update.run(schoolId, name);
+    }
+  }
+  return added;
 }

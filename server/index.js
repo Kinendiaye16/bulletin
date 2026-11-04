@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { db, tx, ROOT } from './db.js';
 import { hashPassword, verifyPassword, newToken } from './auth.js';
-import { createSchool, createYear, PERIOD_NAMES } from './school.js';
+import { createSchool, createYear, addDefaultSubjects, PERIOD_NAMES } from './school.js';
 import { subjectCyclesForClass, SUBJECT_CYCLES, SERIES } from './defaults.js';
 import { computeClassResults, computeAnnual } from '../shared/calc.js';
 
@@ -231,6 +231,8 @@ route('PUT', '/api/school', ({ user, body }) => {
     str(body.director_name, 120), body.status === 'public' ? 'public' : 'prive', weight, user.school_id);
   if (SCHOOL_TYPES.includes(body.school_type)) {
     db.prepare('UPDATE schools SET school_type = ? WHERE id = ?').run(body.school_type, user.school_id);
+    // Un niveau qui s'ouvre (ex. collège-lycée dans une école élémentaire) reçoit ses matières de départ.
+    addDefaultSubjects(user.school_id, body.school_type);
   }
   return schoolOf(user.school_id);
 });
