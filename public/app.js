@@ -310,13 +310,13 @@ function shell(opts) {
   const admin = isAdmin();
   const links = [
     ['#/', 'Tableau de bord', 'dashboard'],
+    ...(admin ? [
+      ['#/etablissement', 'Établissement', 'school'],
+      ['#/enseignants', 'Équipe', 'team'],
+    ] : []),
     ['#/classes', 'Classes', 'classes'],
     ['#/notes', 'Saisie des notes', 'notes'],
-    ...(admin ? [
-      ['#/matieres', 'Matières', 'subjects'],
-      ['#/enseignants', 'Équipe', 'team'],
-      ['#/etablissement', 'Établissement', 'school'],
-    ] : []),
+    ...(admin ? [['#/matieres', 'Matières', 'subjects']] : []),
   ];
   return html`<div class="app ${opts.nav === '#/' ? 'on-dashboard' : ''}">
     <aside class="sidebar">
