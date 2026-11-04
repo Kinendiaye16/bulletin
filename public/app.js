@@ -27,6 +27,31 @@ const fmtNum = (n) => String(n).replace('.', ',');
 const formData = (form) => Object.fromEntries(new FormData(form));
 const today = () => new Date().toLocaleDateString('fr-FR');
 
+// Icônes au trait (24×24), dessinées en ligne pour rester utilisables hors connexion.
+const ICONS = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  classes: '<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>',
+  notes: '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/>',
+  subjects: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  team: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  school: '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+  students: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  teacher: '<path d="M21.42 10.92a1 1 0 0 0-.02-1.84L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.83l8.57 3.91a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+  evaluations: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  plusCircle: '<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/>',
+  check: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  circle: '<circle cx="12" cy="12" r="10"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
+};
+const icon = (name, cls = '') => raw(`<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`);
+/** Initiales d'un nom : « Aminat Ndiaye » → « AN ». */
+const initials = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+
 function toast(message, type = '') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
@@ -278,29 +303,37 @@ async function render() {
 function shell(opts) {
   const { user, school } = state.me;
   const year = currentYear();
-  const links = [
-    ['#/', 'Tableau de bord'],
-    ['#/classes', 'Classes'],
-    ['#/notes', 'Saisie des notes'],
-    ...(isAdmin() ? [['#/matieres', 'Matières'], ['#/enseignants', 'Équipe'], ['#/etablissement', 'Établissement']] : []),
+  const admin = isAdmin();
+  const sections = [
+    ['Pédagogie', [
+      ['#/', 'Tableau de bord', 'dashboard'],
+      ['#/classes', 'Classes', 'classes'],
+      ['#/notes', 'Saisie des notes', 'notes'],
+      ...(admin ? [['#/matieres', 'Matières', 'subjects']] : []),
+    ]],
+    ...(admin ? [['Administration', [
+      ['#/enseignants', 'Équipe', 'team'],
+      ['#/etablissement', 'Établissement', 'school'],
+    ]]] : []),
   ];
   return html`<div class="app">
     <aside class="sidebar">
-      <a class="brand" href="#/"><img src="/icon.svg" alt=""><span>Ndamely<small>${school.name}</small></span></a>
-      <nav class="nav">${links.map(([href, label]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${label}</a>`)}</nav>
+      <a class="brand" href="#/"><span class="brand-logo"><img src="/icon.svg" alt=""></span><span>Ndamely<small>${school.name}</small></span></a>
+      ${sections.map(([title, links]) => html`<div class="nav-section">${title}</div>
+        <nav class="nav">${links.map(([href, label, ic]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`)}</nav>`)}
       <div class="me">
-        <strong>${user.name}</strong>
-        <span class="muted">${user.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span><br>
-        <button class="btn ghost sm" id="logout" style="padding-left:0">Se déconnecter</button>
+        <span class="avatar">${initials(user.name)}</span>
+        <span class="me-text"><strong>${user.name}</strong><span>${user.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span></span>
+        <button class="icon-btn" id="logout" title="Se déconnecter" aria-label="Se déconnecter">${icon('logout')}</button>
       </div>
     </aside>
     <div class="main">
       <header class="topbar">
-        <button class="btn sm menu-btn" id="menu" aria-label="Menu">☰</button>
-        <strong class="grow">${opts.title}</strong>
-        ${year ? html`<span class="muted small">${year.label}</span>
+        <button class="icon-btn menu-btn" id="menu" aria-label="Menu">${icon('menu')}</button>
+        <nav class="crumbs grow" aria-label="Fil d'Ariane"><a href="#/">Accueil</a>${icon('chevron')}<strong>${opts.title}</strong></nav>
+        ${year ? html`<div class="period-picker"><span>${year.label}</span>
           <select id="period" aria-label="Période">${year.periods.map((p) =>
-            html`<option value="${p.id}" ${raw(p.id === state.periodId ? 'selected' : '')}>${p.name}</option>`)}</select>` : ''}
+            html`<option value="${p.id}" ${raw(p.id === state.periodId ? 'selected' : '')}>${p.name}</option>`)}</select></div>` : ''}
         <span id="sync" class="sync"></span>
       </header>
       <main id="view"></main>
@@ -416,11 +449,24 @@ async function viewDashboard(view) {
   const otherSubjects = mySubjects.filter((s) => !myPrimary.some((c) => c.id === s.class_id));
   const canBulletins = (c) => isAdmin() || c.main_teacher_id === user.id;
 
+  const year = currentYear();
+  const periodName = year?.periods.find((p) => p.id === period)?.name;
+  const doneCount = steps.filter(([k]) => dash.checklist?.[k]).length;
+  const pct = Math.round((doneCount * 100) / steps.length);
+  const nextStep = steps.find(([k]) => !dash.checklist?.[k])?.[0];
+  const cta = myPrimary.length === 1
+    ? ['Saisir une composition', `#/composition/${myPrimary[0].id}`]
+    : [isPrimarySchool() ? 'Saisir une composition' : 'Saisir des notes', '#/notes'];
+  const kpi = (label, value, ic, tone) => html`<div class="kpi">
+    <div class="kpi-top"><span class="label">${label}</span><span class="kpi-icon ${tone}">${icon(ic)}</span></div>
+    <div class="value">${value ?? 0}</div></div>`;
+
   view.innerHTML = html`
     <div class="page-head"><div><h1>Bonjour ${user.name.split(' ')[0]}</h1>
-      <p class="muted">${dash.year ? `Année scolaire ${dash.year.label}` : 'Aucune année scolaire active'}</p></div></div>
+      <p class="muted">${dash.year ? `Voici un aperçu de l'année scolaire ${dash.year.label}${periodName ? ` · ${periodName}` : ''}` : 'Aucune année scolaire active'}</p></div>
+      <a class="btn primary lg" href="${cta[1]}">${icon('plus')}${cta[0]}</a></div>
     ${myPrimary.map((c) => html`<div class="card">
-      <div class="page-head" style="margin-bottom:10px"><div><h2 style="margin:0">Ma classe : ${c.name}</h2>
+      <div class="card-head"><div><h2>Ma classe : ${c.name}</h2>
         <p class="muted small">${c.students} élève(s) · ${c.subjects} matière(s) · notes sur ${c.scale}</p></div></div>
       <div class="row">
         <a class="btn primary" href="#/composition/${c.id}">Saisir une composition</a>
@@ -429,32 +475,77 @@ async function viewDashboard(view) {
         <a class="btn" href="#/classes/${c.id}">Liste des élèves</a>
       </div></div>`)}
     ${isAdmin() || !myPrimary.length ? html`<div class="kpis">
-      <div class="kpi"><div class="label">Classes</div><div class="value">${dash.counts.classes ?? 0}</div></div>
-      <div class="kpi"><div class="label">Élèves</div><div class="value">${dash.counts.students ?? 0}</div></div>
-      ${isAdmin() ? html`<div class="kpi"><div class="label">Enseignants</div><div class="value">${dash.counts.teachers ?? 0}</div></div>` : ''}
-      <div class="kpi"><div class="label">Évaluations saisies</div><div class="value">${dash.counts.evaluations ?? 0}</div></div>
+      ${kpi('Classes', dash.counts.classes, 'classes', 'green')}
+      ${kpi('Élèves', dash.counts.students, 'students', 'blue')}
+      ${isAdmin() ? kpi('Enseignants', dash.counts.teachers, 'teacher', 'orange') : ''}
+      ${kpi('Évaluations saisies', dash.counts.evaluations, 'evaluations', 'purple')}
     </div>` : ''}
-    ${showChecklist ? html`<div class="card"><h2>Pour bien démarrer</h2><ul class="checklist">
-      ${steps.map(([k, label, href]) => html`<li class="${dash.checklist[k] ? 'done' : ''}"><span class="tick">${dash.checklist[k] ? '✓' : ''}</span><a href="${href}">${label}</a></li>`)}
-    </ul></div>` : ''}
+    ${showChecklist ? html`<div class="card">
+      <div class="card-head"><div><h2>Pour bien démarrer</h2><p class="muted small">${doneCount} étape${doneCount > 1 ? 's' : ''} sur ${steps.length} terminée${doneCount > 1 ? 's' : ''}</p></div>
+        <div class="progress"><div class="bar"><i style="width:${pct}%"></i></div><strong>${pct} %</strong></div></div>
+      <div class="steps">${steps.map(([k, label, href]) => dash.checklist[k]
+        ? html`<div class="step done">${icon('check')}<span>${STEP_DONE[k] ?? label}</span></div>`
+        : html`<a class="step ${k === nextStep ? 'next' : ''}" href="${href}">${icon(k === nextStep ? 'plusCircle' : 'circle')}<span>${label}</span>${k === nextStep ? icon('arrow', 'end') : ''}</a>`)}</div>
+    </div>` : ''}
     ${otherSubjects.length && !isAdmin() ? html`<div class="card"><h2>Mes matières</h2><div class="grid">
       ${otherSubjects.map((s) => html`<a class="btn" href="#/notes/${s.id}">${s.class_name} · ${s.subject_name}</a>`)}
     </div></div>` : ''}
-    ${isAdmin() || !myPrimary.length ? html`<div class="card"><h2>Classes</h2>
-      ${dash.classes.length ? html`<div class="table-wrap"><table class="data">
-        <thead><tr><th>Classe</th><th>Maître / prof. principal</th><th class="num">Élèves</th><th class="num">Matières</th><th></th></tr></thead>
-        <tbody>${dash.classes.map((c) => html`<tr>
-          <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a> <span class="muted small">${c.level !== c.name ? c.level : ''}</span></td>
-          <td>${c.main_teacher_name || html`<span class="muted">—</span>`}</td>
-          <td class="num">${c.students}</td><td class="num">${c.subjects}</td>
+    ${isAdmin() || !myPrimary.length ? html`<div class="card flush">
+      <div class="card-head"><div><h2>Classes</h2><p class="muted small">${dash.classes.length} classe${dash.classes.length > 1 ? 's' : ''}${dash.year ? ` · ${dash.year.label}` : ''}</p></div>
+        <div class="row">
+          ${dash.classes.length > 1 ? html`<label class="search">${icon('search')}<input type="search" id="class-search" placeholder="Rechercher une classe" aria-label="Rechercher une classe"></label>` : ''}
+          ${isAdmin() ? html`<a class="btn" href="#/classes">${icon('plus')}Nouvelle classe</a>` : ''}
+        </div></div>
+      ${dash.classes.length ? html`<div class="table-wrap"><table class="data roomy">
+        <thead><tr><th>Classe</th><th>Maître / prof. principal</th><th>Élèves</th><th>Matières</th><th class="actions">Actions</th></tr></thead>
+        <tbody>${dash.classes.map((c) => html`<tr data-search="${`${c.name} ${c.level} ${c.main_teacher_name ?? ''}`.toLowerCase()}">
+          <td><a class="class-cell" href="#/classes/${c.id}"><span class="class-badge">${levelCode(c)}</span>
+            <span><strong>${c.name}</strong><small>${levelName(c)}</small></span></a></td>
+          <td>${c.main_teacher_name
+            ? html`<span class="person"><span class="avatar sm">${initials(c.main_teacher_name)}</span>${c.main_teacher_name}</span>`
+            : html`<span class="muted">—</span>`}</td>
+          <td>${c.students}</td>
+          <td><span class="badge">${c.subjects} matière${c.subjects > 1 ? 's' : ''}</span></td>
           <td class="actions">
-            ${c.cycle === 'primaire' && canBulletins(c) ? html`<a class="btn sm" href="#/composition/${c.id}">Composition</a>` : ''}
+            ${c.cycle === 'primaire' && canBulletins(c) ? html`<a class="btn sm primary" href="#/composition/${c.id}">Composition</a>` : ''}
             <a class="btn sm" href="#/resultats/${c.id}">Résultats</a>
             ${canBulletins(c) ? html`<a class="btn sm" href="#/bulletins/${c.id}?periode=${period}">Bulletins</a>` : ''}
-          </td></tr>`)}</tbody></table></div>`
+          </td></tr>`)}</tbody></table></div>
+        <p class="empty" id="no-match" hidden>Aucune classe ne correspond à cette recherche.</p>`
         : html`<p class="empty">Aucune classe pour le moment. ${isAdmin() ? html`<a href="#/classes">Créer les classes</a>` : ''}</p>`}
     </div>` : ''}`.s;
+
+  $('#class-search', view)?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    let shown = 0;
+    $$('tr[data-search]', view).forEach((tr) => {
+      const ok = !q || tr.dataset.search.includes(q);
+      tr.hidden = !ok;
+      shown += ok;
+    });
+    $('#no-match', view).hidden = shown > 0;
+  });
 }
+
+// Libellés des étapes une fois terminées.
+const STEP_DONE = {
+  school: "Informations de l'école complétées",
+  classes: 'Classes créées',
+  teachers: 'Enseignants ajoutés',
+  subjects: 'Matières définies',
+  students: 'Élèves inscrits',
+  grades: 'Premières notes saisies',
+};
+
+const LEVEL_NAMES = {
+  CI: "Cours d'initiation", CP: 'Cours préparatoire', CE1: 'Cours élémentaire 1', CE2: 'Cours élémentaire 2',
+  CM1: 'Cours moyen 1', CM2: 'Cours moyen 2', '6E': 'Collège · 6e', '5E': 'Collège · 5e', '4E': 'Collège · 4e', '3E': 'Collège · 3e',
+  '2NDE': 'Lycée · Seconde', '1ERE': 'Lycée · Première', '1RE': 'Lycée · Première', TLE: 'Lycée · Terminale',
+};
+const levelWord = (c) => String(c.level || c.name).trim().split(/\s+/)[0];
+const levelCode = (c) => levelWord(c).slice(0, 4);
+const levelName = (c) => LEVEL_NAMES[levelWord(c).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')]
+  ?? (c.level && c.level !== c.name ? c.level : '');
 
 // =============================================================== classes
 
