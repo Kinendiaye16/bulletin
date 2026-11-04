@@ -570,7 +570,6 @@ function studentFields(s = {}) {
     ${field('Prénom(s)', 'first_name', { required: true, value: s.first_name })}
     ${field('Nom', 'last_name', { required: true, value: s.last_name })}
     ${selectField('Sexe', 'sex', [['M', 'Garçon'], ['F', 'Fille']], s.sex)}
-    ${field('Matricule', 'matricule', { value: s.matricule })}
     ${field('Date de naissance', 'birth_date', { value: s.birth_date, placeholder: 'JJ/MM/AAAA' })}
     ${field('Lieu de naissance', 'birth_place', { value: s.birth_place })}
     ${field('Parent / tuteur', 'guardian_name', { value: s.guardian_name })}
@@ -616,9 +615,9 @@ function renderStudents(el, c) {
     <details class="panel"><summary>Importer une liste (Excel ou CSV)</summary>
       <form id="imp" class="stack">
         <p class="small muted">Choisissez votre fichier Excel, ou copiez-collez les lignes ici. Les colonnes doivent être dans cet ordre :<br>
-          <strong>Matricule · Prénom(s) · Nom · Sexe (M/F) · Date de naissance · Lieu de naissance · Parent/tuteur · Téléphone</strong><br>
+          <strong>Prénom(s) · Nom · Sexe (M/F) · Date de naissance · Lieu de naissance · Parent/tuteur · Téléphone</strong><br>
           Seuls le prénom et le nom sont obligatoires. Une ligne d'en-tête est ignorée automatiquement.</p>
-        <textarea name="text" placeholder="2026001&#9;Awa&#9;Diop&#9;F&#9;12/03/2014&#9;Dakar&#9;Moussa Diop&#9;77 000 00 00"></textarea>
+        <textarea name="text" placeholder="Awa&#9;Diop&#9;F&#9;12/03/2014&#9;Dakar&#9;Moussa Diop&#9;77 000 00 00"></textarea>
         <label class="field"><span>… ou choisissez un fichier Excel (.xlsx) ou CSV</span>
           <input type="file" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" id="csv"></label>
         <p class="small" id="file-info" hidden></p>
@@ -626,9 +625,9 @@ function renderStudents(el, c) {
         <div><button class="btn primary" type="submit">Importer</button></div>
       </form></details>` : ''}
     ${c.students.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>N°</th><th>Matricule</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th><th>Date de naissance</th><th>Lieu de naissance</th><th>Parent / tuteur</th><th>Téléphone</th>${admin ? html`<th></th>` : ''}</tr></thead>
+      <thead><tr><th>N°</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th><th>Date de naissance</th><th>Lieu de naissance</th><th>Parent / tuteur</th><th>Téléphone</th>${admin ? html`<th></th>` : ''}</tr></thead>
       <tbody>${c.students.map((s, i) => html`<tr>
-        <td>${i + 1}</td><td>${s.matricule}</td><td><strong>${s.last_name}</strong></td><td>${s.first_name}</td>
+        <td>${i + 1}</td><td><strong>${s.last_name}</strong></td><td>${s.first_name}</td>
         <td>${s.sex}</td><td class="nowrap">${fmtBirth(s.birth_date)}</td><td>${s.birth_place}</td>
         <td>${s.guardian_name}</td><td class="nowrap">${s.guardian_phone}</td>
         ${admin ? html`<td class="actions"><button class="btn sm" data-edit="${s.id}">Modifier</button>
@@ -1227,8 +1226,8 @@ async function viewResults(view, [classId]) {
   $('#csv', view).onclick = () => {
     const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [
-      ['Rang', 'Matricule', 'Nom', 'Prénom(s)', ...subjects.map((s) => `${s.name} (coef. ${fmtNum(s.coefficient)})`), 'Moyenne', 'Appréciation', 'Distinction', 'Appréciation du conseil', 'Décision'],
-      ...rows.map((s) => [rankLabel(s.rank, s.tie, s.sex), s.matricule, s.last_name, s.first_name,
+      ['Rang', 'Nom', 'Prénom(s)', ...subjects.map((s) => `${s.name} (coef. ${fmtNum(s.coefficient)})`), 'Moyenne', 'Appréciation', 'Distinction', 'Appréciation du conseil', 'Décision'],
+      ...rows.map((s) => [rankLabel(s.rank, s.tie, s.sex), s.last_name, s.first_name,
         ...subjects.map((sub) => fmt(s.subjects[sub.id].average)), fmt(s.average), s.appreciation, s.distinction,
         council[s.id]?.appreciation, council[s.id]?.decision]),
     ];
@@ -1290,7 +1289,6 @@ function bulletinPage(d, b) {
 
     <div class="b-info">
       <div><span>Prénom(s) et nom :</span><strong>${s.first_name} ${s.last_name}</strong></div>
-      <div><span>Matricule :</span>${s.matricule || '—'}</div>
       <div><span>Né(e) le :</span>${fmtBirth(s.birth_date) || '—'}${s.birth_place ? ` à ${s.birth_place}` : ''}</div>
       <div><span>Sexe :</span>${s.sex === 'F' ? 'Féminin' : 'Masculin'}</div>
       <div><span>Effectif de la classe :</span>${stats.count}</div>

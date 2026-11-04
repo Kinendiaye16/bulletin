@@ -610,12 +610,12 @@ route('DELETE', '/api/class-subjects/:id', ({ user, params }) => {
 
 // ---------------------------------------------------------------- élèves
 
-const STUDENT_COLUMNS = ['matricule', 'first_name', 'last_name', 'sex', 'birth_date', 'birth_place', 'guardian_name', 'guardian_phone'];
+const STUDENT_COLUMNS = ['first_name', 'last_name', 'sex', 'birth_date', 'birth_place', 'guardian_name', 'guardian_phone'];
 
 /** Champ élève correspondant à un intitulé de colonne, ou null si la colonne est inconnue. */
 function headerField(label) {
   const h = label.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-  if (/matricule|identifiant|\bien\b|n.?\s*inscription/.test(h)) return 'matricule';
+  if (/matricule|identifiant|\bien\b|n.?\s*inscription/.test(h)) return null; // colonne ignorée
   if (/prenom/.test(h)) return 'first_name';
   if (/lieu/.test(h)) return 'birth_place';
   if (/date|naissance|\bne\b|\bnee?\b|ne\(e\)/.test(h)) return 'birth_date';
