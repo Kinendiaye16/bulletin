@@ -47,6 +47,10 @@ const ICONS = {
   chevron: '<path d="m9 18 6-6-6-6"/>',
   arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
+  userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M8 17v-4"/><path d="M13 17V9"/><path d="M18 17v-7"/>',
+  checkFill: '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="m8.5 12 2.5 2.5 4.5-5" stroke="#fff" stroke-width="2.2"/>',
 };
 const icon = (name, cls = '') => raw(`<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`);
 /** Initiales d'un nom : « Aminat Ndiaye » → « AN ». */
@@ -316,11 +320,15 @@ function shell(opts) {
       ['#/etablissement', 'Établissement', 'school'],
     ]]] : []),
   ];
-  return html`<div class="app">
+  return html`<div class="app design-${currentDesign()} ${opts.nav === '#/' ? 'on-dashboard' : ''}">
     <aside class="sidebar">
       <a class="brand" href="#/"><span class="brand-logo"><img src="/icon.svg" alt=""></span><span>Ndamely<small>${school.name}</small></span></a>
       ${sections.map(([title, links]) => html`<div class="nav-section">${title}</div>
         <nav class="nav">${links.map(([href, label, ic]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`)}</nav>`)}
+      <div class="design-switch" role="group" aria-label="Choix du design">
+        <span>Design</span>
+        ${['1', '2'].map((d) => html`<button type="button" data-design="${d}" class="${currentDesign() === d ? 'on' : ''}" aria-pressed="${currentDesign() === d}">${d}</button>`)}
+      </div>
       <div class="me">
         <span class="avatar">${initials(user.name)}</span>
         <span class="me-text"><strong>${user.name}</strong><span>${user.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span></span>
@@ -332,13 +340,26 @@ function shell(opts) {
         <button class="icon-btn menu-btn" id="menu" aria-label="Menu">${icon('menu')}</button>
         <nav class="crumbs grow" aria-label="Fil d'Ariane"><a href="#/">Accueil</a>${icon('chevron')}<strong>${opts.title}</strong></nav>
         ${year ? html`<div class="period-picker"><span>${year.label}</span>
-          <select id="period" aria-label="Période">${year.periods.map((p) =>
+          <select id="period" data-period aria-label="Période">${year.periods.map((p) =>
             html`<option value="${p.id}" ${raw(p.id === state.periodId ? 'selected' : '')}>${p.name}</option>`)}</select></div>` : ''}
         <span id="sync" class="sync"></span>
       </header>
       <main id="view"></main>
     </div>
   </div>`;
+}
+
+/** Design choisi (1 : menu clair, 2 : menu vert foncé) — sélecteur provisoire pour comparer. */
+const currentDesign = () => (safeGet('ndamely.design') === '2' ? '2' : '1');
+
+/** Les sélecteurs de période (barre du haut, bandeau du tableau de bord) rechargent la page sur la période choisie. */
+function bindPeriodSelects(root) {
+  $$('select[data-period]', root).forEach((sel) => sel.addEventListener('change', (e) => {
+    state.periodId = Number(e.target.value);
+    safeSet('bulletin.period', state.periodId);
+    const [path] = location.hash.split('?');
+    go(path);
+  }));
 }
 
 function bindShell() {
@@ -348,13 +369,11 @@ function bindShell() {
     go('#/connexion');
   };
   $('#menu').onclick = () => $('.app').classList.toggle('menu-open');
-  $('#period')?.addEventListener('change', (e) => {
-    state.periodId = Number(e.target.value);
-    safeSet('bulletin.period', state.periodId);
-    // Les pages liées à une période se rechargent sur la nouvelle période.
-    const [path] = location.hash.split('?');
-    go(path);
-  });
+  $$('[data-design]').forEach((b) => (b.onclick = () => {
+    safeSet('ndamely.design', b.dataset.design);
+    render();
+  }));
+  bindPeriodSelects(document);
   updateSync();
 }
 
@@ -461,6 +480,10 @@ async function viewDashboard(view) {
     <div class="kpi-top"><span class="label">${label}</span><span class="kpi-icon ${tone}">${icon(ic)}</span></div>
     <div class="value">${value ?? 0}</div></div>`;
 
+  if (currentDesign() === '2') {
+    return renderDashboard2(view, { dash, user, period, year, periodName, steps, showChecklist, doneCount, pct, nextStep, cta, myPrimary, otherSubjects, canBulletins });
+  }
+
   view.innerHTML = html`
     <div class="page-head"><div><h1>Bonjour ${user.name.split(' ')[0]}</h1>
       <p class="muted">${dash.year ? `Voici un aperçu de l'année scolaire ${dash.year.label}${periodName ? ` · ${periodName}` : ''}` : 'Aucune année scolaire active'}</p></div>
@@ -521,6 +544,126 @@ async function viewDashboard(view) {
     $$('tr[data-search]', view).forEach((tr) => {
       const ok = !q || tr.dataset.search.includes(q);
       tr.hidden = !ok;
+      shown += ok;
+    });
+    $('#no-match', view).hidden = shown > 0;
+  });
+}
+
+// Libellés courts des étapes (design 2, « Mise en route »).
+const STEP_SHORT = {
+  school: "Informations de l'école",
+  classes: 'Création des classes',
+  teachers: 'Enseignants et leur classe',
+  subjects: 'Matières et coefficients',
+  students: 'Inscription des élèves',
+};
+
+/** Phrase d'accueil du bandeau selon l'avancement. */
+function dashboardMessage({ dash, steps, nextStep, periodName }) {
+  if (!dash.year) return 'Aucune année scolaire active.';
+  if (!nextStep || !isAdmin()) return `Voici un aperçu de l'année scolaire ${dash.year.label}${periodName ? ` · ${periodName}` : ''}.`;
+  const left = steps.filter(([k]) => !dash.checklist?.[k]);
+  if (left.length === 1 && nextStep === 'grades') {
+    return `Votre école est presque prête. Il ne reste qu'à ${isPrimarySchool() ? 'saisir la première composition' : 'saisir les premières notes'}.`;
+  }
+  const label = steps.find(([k]) => k === nextStep)[1];
+  return `Prochaine étape : ${label.charAt(0).toLowerCase()}${label.slice(1)}.`;
+}
+
+function renderDashboard2(view, ctx) {
+  const { dash, user, period, year, steps, showChecklist, doneCount, pct, nextStep, cta, myPrimary, otherSubjects, canBulletins } = ctx;
+  const admin = isAdmin();
+  const shownClasses = myPrimary.length ? myPrimary : dash.classes;
+  const firstBulletin = shownClasses.find(canBulletins);
+  const quick = admin
+    ? [
+      ['userPlus', 'Inscrire un élève', '#/classes'],
+      ['teacher', 'Ajouter un enseignant', '#/enseignants'],
+      ['classes', 'Nouvelle classe', '#/classes'],
+      ['file', 'Imprimer les bulletins', firstBulletin ? `#/bulletins/${firstBulletin.id}?periode=${period}` : '#/classes'],
+    ]
+    : [
+      ['notes', 'Saisir des notes', '#/notes'],
+      ['file', 'Imprimer les bulletins', firstBulletin ? `#/bulletins/${firstBulletin.id}?periode=${period}` : '#/classes'],
+    ];
+  const stat = (label, value) => html`<div class="hero-stat"><span>${label}</span><strong>${value ?? 0}</strong></div>`;
+
+  view.innerHTML = html`
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="hero-status"><span id="hero-sync">En ligne</span>${dash.year ? ` · ${dash.year.label}` : ''}</p>
+          <h1>Bonjour ${user.name.split(' ')[0]}</h1>
+          <p class="hero-sub">${dashboardMessage(ctx)}</p>
+        </div>
+        <div class="hero-actions">
+          ${year ? html`<select data-period aria-label="Période">${year.periods.map((p) =>
+            html`<option value="${p.id}" ${raw(p.id === period ? 'selected' : '')}>${p.name}</option>`)}</select>` : ''}
+          <a class="btn hero-cta" href="${cta[1]}">${icon('plus')}${cta[0]}</a>
+        </div>
+      </div>
+      <div class="hero-stats">
+        ${stat(myPrimary.length ? 'Ma classe' : 'Classes', myPrimary.length ? myPrimary.map((c) => c.name).join(', ') : dash.counts.classes)}
+        ${stat('Élèves', myPrimary.length ? myPrimary.reduce((n, c) => n + c.students, 0) : dash.counts.students)}
+        ${admin ? stat('Enseignants', dash.counts.teachers) : ''}
+        ${stat('Évaluations saisies', dash.counts.evaluations)}
+      </div>
+    </section>
+
+    <div class="dash-grid">
+      <div class="dash-main">
+        <div class="card">
+          <div class="card-head"><h2>${myPrimary.length ? 'Ma classe' : 'Classes'}</h2>
+            <a class="link-arrow" href="#/classes">Voir toutes les classes ${icon('arrow')}</a></div>
+          ${shownClasses.length ? html`${dash.classes.length > 4 && !myPrimary.length
+            ? html`<label class="search" style="margin-bottom:12px">${icon('search')}<input type="search" id="class-search" placeholder="Rechercher une classe" aria-label="Rechercher une classe"></label>` : ''}
+            <div class="class-list">${shownClasses.map((c) => html`<div class="class-row" data-search="${`${c.name} ${c.level} ${c.main_teacher_name ?? ''}`.toLowerCase()}">
+              <a class="class-badge" href="#/classes/${c.id}">${c.name}</a>
+              <div class="class-info"><a href="#/classes/${c.id}"><strong>${c.name}</strong></a>
+                <span>${[c.main_teacher_name, `${c.students} élève${c.students > 1 ? 's' : ''}`, `${c.subjects} matière${c.subjects > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}</span></div>
+              <div class="class-actions">
+                ${c.cycle === 'primaire' && canBulletins(c) ? html`<a class="btn sm" href="#/composition/${c.id}">${icon('notes')}Composition</a>` : ''}
+                <a class="btn sm" href="#/resultats/${c.id}">${icon('chart')}Résultats</a>
+                ${canBulletins(c) ? html`<a class="btn sm" href="#/bulletins/${c.id}?periode=${period}">${icon('file')}Bulletins</a>` : ''}
+              </div>
+            </div>`)}</div>
+            <p class="empty" id="no-match" hidden>Aucune classe ne correspond à cette recherche.</p>`
+            : html`<p class="empty">Aucune classe pour le moment. ${admin ? html`<a href="#/classes">Créer les classes</a>` : ''}</p>`}
+        </div>
+        ${otherSubjects.length && !admin ? html`<div class="card"><h2>Mes matières</h2><div class="grid">
+          ${otherSubjects.map((s) => html`<a class="btn" href="#/notes/${s.id}">${s.class_name} · ${s.subject_name}</a>`)}
+        </div></div>` : ''}
+      </div>
+
+      <aside class="dash-side">
+        ${showChecklist ? html`<div class="card">
+          <div class="card-head"><h2>Mise en route</h2><span class="pill">${doneCount} / ${steps.length}</span></div>
+          <div class="progress-line"><i style="width:${pct}%"></i></div>
+          <ul class="todo">${steps.map(([k, label, href]) => dash.checklist[k]
+            ? html`<li class="done">${icon('checkFill')}<span>${STEP_SHORT[k] ?? label}</span></li>`
+            : html`<li class="${k === nextStep ? 'next' : ''}"><span class="dashed"></span><a href="${href}">${k === 'grades' ? label : STEP_SHORT[k] ?? label}</a></li>`)}</ul>
+        </div>` : ''}
+        <div class="card">
+          <h2>Actions rapides</h2>
+          <div class="quick">${quick.map(([ic, label, href]) => html`<a class="quick-tile" href="${href}">${icon(ic)}<span>${label}</span></a>`)}</div>
+        </div>
+      </aside>
+    </div>`.s;
+
+  bindPeriodSelects(view);
+  const heroSync = $('#hero-sync', view);
+  const sync = $('#sync');
+  if (heroSync && sync) {
+    heroSync.textContent = sync.textContent;
+    heroSync.className = sync.className.replace('sync', 'dot');
+  }
+  $('#class-search', view)?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    let shown = 0;
+    $$('[data-search]', view).forEach((row) => {
+      const ok = !q || row.dataset.search.includes(q);
+      row.hidden = !ok;
       shown += ok;
     });
     $('#no-match', view).hidden = shown > 0;
