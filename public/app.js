@@ -1896,7 +1896,7 @@ async function viewTeachers(view, _params, query) {
       <button class="btn primary lg" type="button" id="go-add">${icon('userPlus')}Ajouter un membre</button>
     </div>
 
-    <div class="team-grid">
+    <div>
       <section class="card team-list">
         <div class="team-toolbar">
           <div class="seg" role="tablist">
@@ -1923,27 +1923,6 @@ async function viewTeachers(view, _params, query) {
         <p class="empty" id="no-member" hidden>Aucun membre ne correspond.</p>
       </section>
 
-      <aside class="card form-card add-member" id="add-member">
-        <header><h2>Ajouter un membre</h2><p>Communiquez-lui son e-mail et son mot de passe provisoire.</p></header>
-        <form id="f" class="form-card-body">
-          <div class="field"><span>Rôle</span>
-            <div class="role-pick">
-              <label><input type="radio" name="role" value="enseignant" checked><span>Enseignant</span></label>
-              <label><input type="radio" name="role" value="admin"><span>Administrateur</span></label>
-            </div>
-          </div>
-          ${field('Prénom et nom', 'name', { required: true, placeholder: 'Ex. : Fatou Sarr' })}
-          ${field('E-mail de connexion', 'email', { type: 'email', required: true, placeholder: 'nom@exemple.com' })}
-          ${iconField('Téléphone', 'phone', { prefix: '+221', type: 'tel', inputmode: 'tel', placeholder: '77 000 00 00' })}
-          <div class="teacher-only">
-            ${hasPrimary() ? selectField(hasSecondary ? 'Classe dont il est le maître (élémentaire)' : 'Classe dont il est le maître', 'class_id', classOptions) : ''}
-            ${hasSecondary ? subjectChecks(subjects) : ''}
-          </div>
-          ${field('Mot de passe provisoire', 'password', { required: true, value: tempPassword() })}
-          <p class="form-error" hidden></p>
-          <button class="btn primary lg block" type="submit">${icon('plus')}Ajouter à l'équipe</button>
-        </form>
-      </aside>
     </div>`.s;
 
   // Filtre par onglet et recherche
@@ -1966,26 +1945,44 @@ async function viewTeachers(view, _params, query) {
   $('#member-search', view).addEventListener('input', applyFilter);
   applyFilter();
 
-  const form = $('#f', view);
-  // Les champs propres aux enseignants (classe, matières) disparaissent pour un administrateur.
-  const syncRole = () => {
-    const teacher = form.elements.role.value === 'enseignant';
-    $('.teacher-only', form).hidden = !teacher;
-    $$('.role-pick label', form).forEach((l) => l.classList.toggle('on', $('input', l).checked));
-  };
-  $$('input[name=role]', form).forEach((r) => r.addEventListener('change', syncRole));
-  syncRole();
+  // « Ajouter un membre » : formulaire dans une fenêtre.
   $('#go-add', view).onclick = () => {
-    $('#add-member', view).scrollIntoView({ behavior: 'smooth', block: 'start' });
-    $('[name=name]', form).focus({ preventScroll: true });
+    openDialog({
+      title: 'Ajouter un membre',
+      submitLabel: "Ajouter à l'équipe",
+      body: html`<p class="small muted" style="margin:0">Communiquez-lui son e-mail et son mot de passe provisoire.</p>
+        <div class="field"><span>Rôle</span>
+          <div class="role-pick">
+            <label><input type="radio" name="role" value="enseignant" checked><span>Enseignant</span></label>
+            <label><input type="radio" name="role" value="admin"><span>Administrateur</span></label>
+          </div>
+        </div>
+        ${field('Prénom et nom', 'name', { required: true, placeholder: 'Ex. : Fatou Sarr' })}
+        ${field('E-mail de connexion', 'email', { type: 'email', required: true, placeholder: 'nom@exemple.com' })}
+        ${iconField('Téléphone', 'phone', { prefix: '+221', type: 'tel', inputmode: 'tel', placeholder: '77 000 00 00' })}
+        <div class="teacher-only">
+          ${hasPrimary() ? selectField(hasSecondary ? 'Classe dont il est le maître (élémentaire)' : 'Classe dont il est le maître', 'class_id', classOptions) : ''}
+          ${hasSecondary ? subjectChecks(subjects) : ''}
+        </div>
+        ${field('Mot de passe provisoire', 'password', { required: true, value: tempPassword() })}`,
+      onSubmit: async (data, f) => {
+        if (data.role === 'admin') delete data.class_id;
+        await api('POST', '/api/users', data.role === 'admin' ? data : withSubjects(data, f));
+        toast('Membre ajouté.');
+        render();
+      },
+    });
+    const form = $('dialog.dialog:last-of-type form');
+    // Les champs propres aux enseignants (classe, matières) disparaissent pour un administrateur.
+    const syncRole = () => {
+      const teacher = form.elements.role.value === 'enseignant';
+      $('.teacher-only', form).hidden = !teacher;
+      $$('.role-pick label', form).forEach((l) => l.classList.toggle('on', $('input', l).checked));
+    };
+    $$('input[name=role]', form).forEach((r) => r.addEventListener('change', syncRole));
+    syncRole();
+    $('[name=name]', form).focus();
   };
-
-  bindForm(form, async (data) => {
-    if (data.role === 'admin') delete data.class_id;
-    await api('POST', '/api/users', data.role === 'admin' ? data : withSubjects(data, form));
-    toast('Membre ajouté.');
-    render();
-  });
   $$('[data-edit]', view).forEach((b) => (b.onclick = () => {
     const u = users.find((x) => x.id === Number(b.dataset.edit));
     openDialog({
