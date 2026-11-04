@@ -717,16 +717,20 @@ function renderClassSubjects(el, c, users, subjects) {
       ? html`À l'élémentaire, un seul maître enseigne toutes les matières : <strong>${c.main_teacher_name}</strong> saisit les notes de toute la classe. Pour changer de maître, passez par les ${settingsLink}.`
       : html`À l'élémentaire, un seul maître enseigne toutes les matières. ${admin ? html`Désignez-le dans les ${settingsLink}.` : ''}`}</div>`
       : admin && c.subjects.length && missing ? html`<div class="alert">${missing} matière(s) sans professeur : choisissez l'enseignant de chaque matière ci-dessous.</div>` : ''}
-    ${admin && available.length ? html`<details class="panel" ${raw(c.subjects.length ? '' : 'open')}><summary>+ Ajouter une matière</summary>
+    ${admin ? html`<details class="panel" ${raw(c.subjects.length ? '' : 'open')}><summary>+ Ajouter une matière</summary>
       <form id="add" class="stack">
         <div class="form-grid">
-          ${selectField('Matière', 'subject_id', available.map((s) => [s.id, `${s.name} (coef. ${fmtNum(s.default_coefficient)})`]), '', { required: true })}
-          ${field('Coefficient', 'coefficient', { inputmode: 'decimal', placeholder: 'Par défaut' })}
+          ${selectField('Matière', 'subject_id', [
+            ...available.map((s) => [s.id, `${s.name} (coef. ${fmtNum(s.default_coefficient)})`]),
+            ['new', '+ Nouvelle matière…'],
+          ], available.length ? '' : 'new', { required: true })}
+          <label class="field" id="new-name"><span>Nom de la nouvelle matière</span><input name="new_name" maxlength="80" placeholder="Ex. : Éducation religieuse"></label>
+          ${field('Coefficient', 'coefficient', { inputmode: 'decimal', placeholder: 'Par défaut : 1' })}
           ${primary ? '' : html`<label class="field"><span>Professeur</span><select name="teacher_id" id="add-teacher"></select></label>`}
         </div>
         <p class="form-error" hidden></p>
         <div class="row"><button class="btn primary" type="submit">Ajouter</button>
-          <button class="btn" type="button" id="all">Ajouter toutes les matières (${available.length})</button></div>
+          ${available.length ? html`<button class="btn" type="button" id="all">Ajouter toutes les matières (${available.length})</button>` : ''}</div>
       </form></details>` : ''}
     ${c.subjects.length ? html`<div class="table-wrap"><table class="data">
       <thead><tr><th>Matière</th><th>Coefficient</th><th>${primary ? 'Maître' : 'Professeur'}</th>${admin ? html`<th></th>` : ''}</tr></thead>
@@ -752,14 +756,33 @@ function renderClassSubjects(el, c, users, subjects) {
       const specialists = users.filter((u) => u.subject_ids.includes(Number(subjectSelect.value)));
       teacherSelect.innerHTML = subjectTeacherOptions(users, subjectSelect.value, specialists.length === 1 ? specialists[0].id : '').s;
     };
-    subjectSelect.addEventListener('change', refreshTeachers);
+    const newName = $('#new-name', addForm);
+    const refreshNew = () => {
+      const isNew = subjectSelect.value === 'new';
+      newName.hidden = !isNew;
+      $('input', newName).required = isNew;
+    };
+    subjectSelect.addEventListener('change', () => { refreshNew(); refreshTeachers(); });
+    refreshNew();
     refreshTeachers();
     bindForm(addForm, async (data) => {
+      if (data.subject_id === 'new') {
+        const name = data.new_name.trim();
+        // Une matière du même nom existe peut-être déjà dans l'établissement (autre cycle) : on la réutilise.
+        const existing = subjects.find((s) => s.name.toLowerCase() === name.toLowerCase());
+        if (existing && c.subjects.some((cs) => cs.subject_id === existing.id)) throw new Error('Cette matière est déjà dans la classe.');
+        data.subject_id = existing ? existing.id : (await api('POST', '/api/subjects', {
+          name,
+          default_coefficient: data.coefficient || 1,
+          cycle: primary ? 'primaire' : 'secondaire',
+        })).id;
+      }
+      delete data.new_name;
       await api('POST', `/api/classes/${c.id}/subjects`, data);
       toast('Matière ajoutée.');
       render();
     });
-    $('#all', el).onclick = async () => {
+    if ($('#all', el)) $('#all', el).onclick = async () => {
       const r = await api('POST', `/api/classes/${c.id}/subjects/all`);
       toast(`${r.added} matière(s) ajoutée(s).`);
       render();
