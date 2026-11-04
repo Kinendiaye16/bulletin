@@ -466,7 +466,6 @@ table.grades td.computed { background: var(--surface-2); font-weight: 600; }
 }
 
 /* ---------- page Équipe */
-.notice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; margin-bottom: 24px; }
 .notice { display: flex; gap: 16px; padding: 22px 24px; border-radius: 18px; border: 1px solid var(--border); background: var(--surface); }
 .notice strong { display: block; font-size: 1.02rem; margin-bottom: 4px; }
 .notice p { margin: 0; color: var(--muted); }

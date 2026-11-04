@@ -1896,21 +1896,6 @@ async function viewTeachers(view, _params, query) {
       <button class="btn primary lg" type="button" id="go-add">${icon('userPlus')}Ajouter un membre</button>
     </div>
 
-    <div class="notice-grid">
-      <div class="notice info"><span class="notice-icon">${icon('info')}</span><div>
-        <strong>${hasSecondary && !hasPrimary() ? 'Un professeur par matière' : 'Un maître par classe'}</strong>
-        <p>${hasSecondary && !hasPrimary()
-          ? "Au collège et au lycée, indiquez la ou les matières de chaque professeur : ils seront proposés en priorité quand vous affecterez un professeur à chaque matière d'une classe."
-          : `À l'élémentaire, chaque maître enseigne toutes les matières de sa classe. Il se connecte avec son e-mail et saisit les compositions de sa classe.${hasSecondary ? ' Au collège et au lycée, chaque professeur a sa ou ses matières.' : ''}`}</p>
-      </div></div>
-      ${withoutTeacher.length ? html`<div class="notice warn"><span class="notice-icon">${icon('alert')}</span><div>
-        <strong>${withoutTeacher.length > 1 ? `${withoutTeacher.length} classes sans maître` : '1 classe sans maître'}</strong>
-        <p>Ajoutez un enseignant pour ${withoutTeacher.length > 1 ? 'chacune' : 'cette classe'} afin de pouvoir saisir ${withoutTeacher.length > 1 ? 'leurs' : 'ses'} compositions :
-          ${withoutTeacher.slice(0, 8).map((c) => c.name).join(', ')}${withoutTeacher.length > 8 ? '…' : ''}.</p>
-        <a href="#/classes">Affecter des enseignants</a>
-      </div></div>` : ''}
-    </div>
-
     <div class="team-grid">
       <section class="card team-list">
         <div class="team-toolbar">
