@@ -610,6 +610,29 @@ route('DELETE', '/api/class-subjects/:id', ({ user, params }) => {
 
 // ---------------------------------------------------------------- élèves
 
+const STUDENT_COLUMNS = ['matricule', 'first_name', 'last_name', 'sex', 'birth_date', 'birth_place', 'guardian_name', 'guardian_phone'];
+
+/** Champ élève correspondant à un intitulé de colonne, ou null si la colonne est inconnue. */
+function headerField(label) {
+  const h = label.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  if (/matricule|identifiant|\bien\b|n.?\s*inscription/.test(h)) return 'matricule';
+  if (/prenom/.test(h)) return 'first_name';
+  if (/lieu/.test(h)) return 'birth_place';
+  if (/date|naissance|\bne\b|\bnee?\b|ne\(e\)/.test(h)) return 'birth_date';
+  if (/tel|phone|portable|contact/.test(h)) return 'guardian_phone';
+  if (/parent|tuteur|pere|mere/.test(h)) return 'guardian_name';
+  if (/sexe|genre/.test(h)) return 'sex';
+  if (/^nom\b|nom de famille/.test(h)) return 'last_name';
+  return null;
+}
+
+/** Date de naissance au format JJ/MM/AAAA (accepte aussi AAAA-MM-JJ). */
+function birthDate(value) {
+  const v = str(value, 20);
+  const iso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return iso ? `${iso[3].padStart(2, '0')}/${iso[2].padStart(2, '0')}/${iso[1]}` : v;
+}
+
 function studentInput(raw) {
   const sex = String(raw.sex ?? '').trim().toUpperCase();
   return {
@@ -617,7 +640,7 @@ function studentInput(raw) {
     first_name: required(raw.first_name, 'Le prénom', 80),
     last_name: required(raw.last_name, 'Le nom', 80),
     sex: sex.startsWith('F') ? 'F' : 'M',
-    birth_date: str(raw.birth_date, 20),
+    birth_date: birthDate(raw.birth_date),
     birth_place: str(raw.birth_place, 80),
     guardian_name: str(raw.guardian_name, 120),
     guardian_phone: str(raw.guardian_phone, 40),
@@ -644,14 +667,23 @@ route('POST', '/api/classes/:id/students/import', ({ user, params, body }) => {
   const lines = String(body.text ?? '').split(/\r?\n/).filter((l) => l.trim());
   if (!lines.length) fail(400, 'Aucune ligne à importer.');
   const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
-  const fields = ['matricule', 'first_name', 'last_name', 'sex', 'birth_date', 'birth_place', 'guardian_name', 'guardian_phone'];
+  const split = (line) => line.split(sep).map((v) => v.trim().replace(/^"(.*)"$/, '$1'));
+  // Avec une ligne d'en-tête, les colonnes sont reconnues par leur nom (l'ordre n'importe pas,
+  // les colonnes inconnues comme « Classe » sont ignorées). Sinon, l'ordre par défaut s'applique.
+  let fields = STUDENT_COLUMNS;
+  const hasHeader = /matricule|pr[ée]nom|\bnom\b/i.test(lines[0]);
+  if (hasHeader) {
+    const mapped = split(lines[0]).map(headerField);
+    if (mapped.includes('first_name') && mapped.includes('last_name')) fields = mapped;
+  }
   const errors = [];
   let imported = 0;
   tx(() => {
     lines.forEach((line, i) => {
-      const cells = line.split(sep).map((v) => v.trim().replace(/^"(.*)"$/, '$1'));
-      if (i === 0 && /matricule|pr[ée]nom|\bnom\b/i.test(line)) return; // ligne d'en-tête
-      const raw = Object.fromEntries(fields.map((f, k) => [f, cells[k] ?? '']));
+      if (i === 0 && hasHeader) return;
+      const cells = split(line);
+      const raw = {};
+      fields.forEach((f, k) => { if (f && raw[f] === undefined) raw[f] = cells[k] ?? ''; });
       try {
         insertStudent(user.school_id, c.id, studentInput(raw));
         imported++;

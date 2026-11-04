@@ -578,6 +578,9 @@ function studentFields(s = {}) {
   </div>`;
 }
 
+/** Date de naissance affichée en JJ/MM/AAAA (les anciennes saisies AAAA-MM-JJ sont converties). */
+const fmtBirth = (d) => String(d ?? '').replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3/$2/$1');
+
 /** Lit un fichier d'élèves (.xlsx, .csv, .txt) et le renvoie en texte séparé par des tabulations. */
 async function readStudentFile(file) {
   const name = file.name.toLowerCase();
@@ -623,10 +626,10 @@ function renderStudents(el, c) {
         <div><button class="btn primary" type="submit">Importer</button></div>
       </form></details>` : ''}
     ${c.students.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>N°</th><th>Matricule</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th><th>Né(e) le</th><th>Parent / tuteur</th><th>Téléphone</th>${admin ? html`<th></th>` : ''}</tr></thead>
+      <thead><tr><th>N°</th><th>Matricule</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th><th>Date de naissance</th><th>Lieu de naissance</th><th>Parent / tuteur</th><th>Téléphone</th>${admin ? html`<th></th>` : ''}</tr></thead>
       <tbody>${c.students.map((s, i) => html`<tr>
         <td>${i + 1}</td><td>${s.matricule}</td><td><strong>${s.last_name}</strong></td><td>${s.first_name}</td>
-        <td>${s.sex}</td><td class="nowrap">${s.birth_date}${s.birth_place ? ` à ${s.birth_place}` : ''}</td>
+        <td>${s.sex}</td><td class="nowrap">${fmtBirth(s.birth_date)}</td><td>${s.birth_place}</td>
         <td>${s.guardian_name}</td><td class="nowrap">${s.guardian_phone}</td>
         ${admin ? html`<td class="actions"><button class="btn sm" data-edit="${s.id}">Modifier</button>
           <button class="btn sm danger" data-del="${s.id}">Retirer</button></td>` : ''}
@@ -1288,7 +1291,7 @@ function bulletinPage(d, b) {
     <div class="b-info">
       <div><span>Prénom(s) et nom :</span><strong>${s.first_name} ${s.last_name}</strong></div>
       <div><span>Matricule :</span>${s.matricule || '—'}</div>
-      <div><span>Né(e) le :</span>${s.birth_date || '—'}${s.birth_place ? ` à ${s.birth_place}` : ''}</div>
+      <div><span>Né(e) le :</span>${fmtBirth(s.birth_date) || '—'}${s.birth_place ? ` à ${s.birth_place}` : ''}</div>
       <div><span>Sexe :</span>${s.sex === 'F' ? 'Féminin' : 'Masculin'}</div>
       <div><span>Effectif de la classe :</span>${stats.count}</div>
       <div><span>${primary ? 'Maître / maîtresse :' : 'Professeur principal :'}</span>${c.main_teacher_name || '—'}</div>
