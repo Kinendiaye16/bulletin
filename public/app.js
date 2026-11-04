@@ -1,4 +1,5 @@
 import { subjectAverage, appreciation, rankLabel, computeRanks, round2 } from '/shared/calc.js';
+import { readXlsx } from '/xlsx.js';
 
 // =============================================================== utilitaires
 
@@ -577,6 +578,32 @@ function studentFields(s = {}) {
   </div>`;
 }
 
+/** Lit un fichier d'élèves (.xlsx, .csv, .txt) et le renvoie en texte séparé par des tabulations. */
+async function readStudentFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.xls')) {
+    throw new Error('Ce fichier est au format Excel ancien (.xls). Dans Excel, faites « Fichier › Enregistrer sous » et choisissez « Classeur Excel (.xlsx) », puis réessayez.');
+  }
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  if (name.endsWith('.xlsx') || (bytes[0] === 0x50 && bytes[1] === 0x4b)) {
+    let rows;
+    try {
+      rows = await readXlsx(buf);
+    } catch {
+      throw new Error('Impossible de lire ce fichier Excel. Enregistrez-le de nouveau au format .xlsx, ou copiez-collez les colonnes dans la zone ci-dessus.');
+    }
+    if (!rows.length) throw new Error('La première feuille de ce fichier Excel est vide.');
+    return rows.map((r) => r.map((x) => x.replace(/[\t\r\n]+/g, ' ')).join('\t')).join('\n');
+  }
+  // CSV : UTF-8, ou Windows-1252 (encodage par défaut d'Excel sous Windows).
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf).replace(/^﻿/, '');
+  } catch {
+    return new TextDecoder('windows-1252').decode(buf);
+  }
+}
+
 function renderStudents(el, c) {
   const admin = isAdmin();
   el.innerHTML = html`
@@ -585,11 +612,13 @@ function renderStudents(el, c) {
         <div><button class="btn primary" type="submit">Ajouter</button></div></form></details>
     <details class="panel"><summary>Importer une liste (Excel ou CSV)</summary>
       <form id="imp" class="stack">
-        <p class="small muted">Dans Excel, sélectionnez les colonnes dans cet ordre puis copiez-collez ici :<br>
+        <p class="small muted">Choisissez votre fichier Excel, ou copiez-collez les lignes ici. Les colonnes doivent être dans cet ordre :<br>
           <strong>Matricule · Prénom(s) · Nom · Sexe (M/F) · Date de naissance · Lieu de naissance · Parent/tuteur · Téléphone</strong><br>
           Seuls le prénom et le nom sont obligatoires. Une ligne d'en-tête est ignorée automatiquement.</p>
         <textarea name="text" placeholder="2026001&#9;Awa&#9;Diop&#9;F&#9;12/03/2014&#9;Dakar&#9;Moussa Diop&#9;77 000 00 00"></textarea>
-        <label class="field"><span>… ou choisissez un fichier CSV</span><input type="file" accept=".csv,.txt" id="csv"></label>
+        <label class="field"><span>… ou choisissez un fichier Excel (.xlsx) ou CSV</span>
+          <input type="file" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" id="csv"></label>
+        <p class="small" id="file-info" hidden></p>
         <p class="form-error" hidden></p>
         <div><button class="btn primary" type="submit">Importer</button></div>
       </form></details>` : ''}
@@ -619,7 +648,22 @@ function renderStudents(el, c) {
   }
   $('#csv', el).addEventListener('change', async (e) => {
     const file = e.target.files[0];
-    if (file) $('#imp textarea', el).value = await file.text();
+    const info = $('#file-info', el);
+    const area = $('#imp textarea', el);
+    if (!file) return;
+    info.hidden = false;
+    info.className = 'small';
+    try {
+      const text = await readStudentFile(file);
+      area.value = text;
+      const n = text.split('\n').filter((l) => l.trim()).length;
+      info.textContent = `« ${file.name} » : ${n} ligne(s) chargée(s). Vérifiez la liste ci-dessus puis cliquez sur « Importer ».`;
+      area.focus();
+    } catch (err) {
+      info.className = 'small form-error';
+      info.textContent = err.message;
+      e.target.value = '';
+    }
   });
   bindForm($('#imp', el), async (data) => {
     const r = await api('POST', `/api/classes/${c.id}/students/import`, { text: data.text });
