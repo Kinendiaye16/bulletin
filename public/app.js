@@ -305,7 +305,7 @@ async function render() {
     view = $('#view');
   } else {
     root.innerHTML = shell(opts).s;
-    bindShell();
+    bindShell(opts);
     view = $('#view');
   }
   view.innerHTML = '<p class="muted">Chargement…</p>';
@@ -345,7 +345,7 @@ function shell(opts) {
     <div class="main">
       <header class="topbar">
         <button class="icon-btn menu-btn" id="menu" aria-label="Menu">${icon('menu')}</button>
-        <nav class="crumbs grow" aria-label="Fil d'Ariane"><a href="#/">Accueil</a>${icon('chevron')}<strong>${opts.title}</strong></nav>
+        <nav class="crumbs grow" aria-label="Fil d'Ariane"><a href="#/">Accueil</a><button type="button" class="crumb-back" id="crumb-back" title="Revenir à la page précédente" aria-label="Revenir à la page précédente">${icon('chevron')}</button><strong>${opts.title}</strong></nav>
         ${year ? html`<div class="period-picker"><span>${year.label}</span>
           <select id="period" data-period aria-label="Période">${year.periods.map((p) =>
             html`<option value="${p.id}" ${raw(p.id === state.periodId ? 'selected' : '')}>${p.name}</option>`)}</select></div>` : ''}
@@ -366,18 +366,26 @@ function bindPeriodSelects(root) {
   }));
 }
 
-function bindShell() {
+function bindShell(opts) {
   $('#logout').onclick = async () => {
     await api('POST', '/api/auth/logout').catch(() => {});
     state.me = null;
     go('#/connexion');
   };
   $('#menu').onclick = () => $('.app').classList.toggle('menu-open');
+  $('#crumb-back').onclick = () => goBack(opts.nav);
   bindPeriodSelects(document);
   updateSync();
 }
 
-window.addEventListener('hashchange', render);
+// Nombre de pages parcourues dans l'application : la flèche du fil d'Ariane revient en arrière
+// s'il y a une page précédente, sinon elle remonte à la rubrique (ou à l'accueil).
+let pagesVisited = 0;
+window.addEventListener('hashchange', () => { pagesVisited++; render(); });
+function goBack(sectionHref) {
+  if (pagesVisited > 0) history.back();
+  else go(sectionHref && sectionHref !== location.hash.split('?')[0] ? sectionHref : '#/');
+}
 window.addEventListener('beforeunload', (e) => {
   if (leaveGuard?.()) e.preventDefault();
 });

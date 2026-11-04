@@ -137,6 +137,9 @@ p { margin: 0 0 0.75em; }
 .crumbs a { color: var(--muted); text-decoration: none; }
 .crumbs a:hover { color: var(--text); }
 .crumbs .icon { width: 15px; height: 15px; color: var(--muted); }
+.crumb-back { display: inline-grid; place-items: center; width: 28px; height: 28px; margin: 0 -4px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
+.crumb-back:hover { background: var(--surface-2); }
+.crumb-back:hover .icon { color: var(--text); }
 .crumbs strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .period-picker { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
 .period-picker span { display: flex; align-items: center; padding: 0 14px; background: var(--surface-2); font-weight: 600; font-size: 0.9rem; border-right: 1px solid var(--border); }
