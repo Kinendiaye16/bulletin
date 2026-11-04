@@ -54,6 +54,7 @@ const ICONS = {
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
   printer: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
   tick: '<path d="M20 6 9 17l-5-5"/>',
+  open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
@@ -607,78 +608,178 @@ const PRIMARY_LEVELS = ['CI', 'CP', 'CE1', 'CE2', 'CM1', 'CM2'];
 const sectionNames = (level, count) =>
   count === 1 ? [level] : Array.from({ length: count }, (_, i) => `${level} ${String.fromCharCode(65 + i)}`);
 
+// Noms complets des niveaux, pour regrouper les classes.
+const LEVEL_NAMES = {
+  CI: "Cours d'initiation", CP: 'Cours préparatoire', CE1: 'Cours élémentaire 1', CE2: 'Cours élémentaire 2',
+  CM1: 'Cours moyen 1', CM2: 'Cours moyen 2', '6E': 'Sixième', '5E': 'Cinquième', '4E': 'Quatrième', '3E': 'Troisième',
+  '2NDE': 'Seconde', '1ERE': 'Première', '1RE': 'Première', TLE: 'Terminale',
+};
+const levelWord = (c) => String(c.level || c.name).trim().split(/\s+/)[0];
+const levelKey = (c) => levelWord(c).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
 async function viewClasses(view) {
   const [classes, users] = await Promise.all([api('GET', '/api/classes'), api('GET', '/api/users')]);
-  const bulk = isAdmin() && hasPrimary();
+  const admin = isAdmin();
+  const bulk = admin && hasPrimary();
   const teachers = users.filter((u) => u.role === 'enseignant');
-  view.innerHTML = html`
-    <div class="page-head"><div><h1>Classes</h1><p class="muted">${currentYear()?.label ?? ''}</p></div></div>
-    ${bulk ? html`<details class="panel" ${raw(classes.length ? '' : 'open')}><summary>+ Créer les classes de l'élémentaire</summary>
-      <form id="bulk" class="stack">
-        <p class="small muted" style="margin:0">Indiquez combien de classes vous avez à chaque niveau. Les matières de l'élémentaire sont ajoutées automatiquement à chaque classe.</p>
-        <div class="form-grid">${PRIMARY_LEVELS.map((l) => field(`Nombre de classes de ${l}`, l, { type: 'number', value: '0', min: 0, max: 8, inputmode: 'numeric' }))}</div>
-        <p class="small" id="bulk-preview"></p>
-        <p class="form-error" hidden></p>
-        <div><button class="btn primary" type="submit">Créer les classes</button></div>
-      </form></details>` : ''}
-    ${isAdmin() ? html`<details class="panel" ${raw(classes.length || bulk ? '' : 'open')}><summary>+ ${bulk ? 'Une autre classe' : 'Nouvelle classe'}</summary>
-      <form id="f" class="stack">
-        <div class="form-grid">
-          ${field('Nom de la classe', 'name', { required: true, placeholder: isPrimarySchool() ? 'Ex. : CE1 B' : 'Ex. : 6e A' })}
-          ${field('Niveau', 'level', { placeholder: 'Ex. : 6e, CM2, Tle S2' })}
-          ${selectField('Cycle', 'cycle', CYCLES, isPrimarySchool() ? 'primaire' : 'moyen')}
-          ${selectField('Barème', 'scale', [['', 'Automatique (sur 10 à l\'élémentaire, sur 20 sinon)'], ['20', 'Notes sur 20'], ['10', 'Notes sur 10']])}
-          ${selectField('Maître / professeur principal', 'main_teacher_id', teacherOptions(users))}
-        </div>
-        <p class="form-error" hidden></p>
-        <div><button class="btn primary" type="submit">Créer la classe</button></div>
-      </form></details>` : ''}
-    ${classes.length ? html`<div class="table-wrap"><table class="data">
-      <thead><tr><th>Classe</th><th>Cycle</th><th>Maître / prof. principal</th><th class="num">Élèves</th><th class="num">Matières</th><th></th></tr></thead>
-      <tbody>${classes.map((c) => html`<tr data-class="${c.id}">
-        <td><a href="#/classes/${c.id}"><strong>${c.name}</strong></a></td>
-        <td class="small">${CYCLES.find(([k]) => k === c.cycle)?.[1].split(' (')[0]} · /${c.scale}</td>
-        <td style="min-width:190px">${isAdmin() ? html`<select name="main_teacher_id" aria-label="Maître de ${c.name}">${teacherOptions(users, '— À désigner —').map(([v, l]) =>
-          html`<option value="${v}" ${raw(String(v) === String(c.main_teacher_id ?? '') ? 'selected' : '')}>${l}</option>`)}</select>` : c.main_teacher_name || '—'}</td>
-        <td class="num">${c.students || html`<a href="#/classes/${c.id}">0 — ajouter</a>`}</td>
-        <td class="num">${c.subjects}</td>
-        <td class="actions"><a class="btn sm" href="#/classes/${c.id}">Ouvrir</a> <a class="btn sm" href="#/resultats/${c.id}">Résultats</a></td>
-      </tr>`)}</tbody></table></div>
-      ${isAdmin() && !teachers.length ? html`<p class="small muted" style="margin-top:8px">Pour désigner les maîtres, ajoutez d'abord les enseignants dans <a href="#/enseignants">Équipe</a>.</p>` : ''}`
-      : html`<p class="empty">Aucune classe.</p>`}`.s;
-  if (!isAdmin()) return;
+  const year = currentYear();
 
-  bindForm($('#f'), async (data) => {
-    const { id } = await api('POST', '/api/classes', data);
-    toast('Classe créée.');
-    go(`#/classes/${id}?onglet=${data.cycle === 'primaire' ? 'eleves' : 'matieres'}`);
-  });
-  if (bulk) {
-    const form = $('#bulk');
-    const planned = () => PRIMARY_LEVELS.flatMap((l) => sectionNames(l, Math.max(0, Math.min(8, Number(form.elements[l].value) || 0)))
-      .map((name) => ({ name, level: l, cycle: 'primaire' })));
-    const preview = () => {
-      const list = planned();
-      $('#bulk-preview').textContent = list.length ? `Seront créées : ${list.map((c) => c.name).join(', ')}` : '';
-    };
-    form.addEventListener('input', preview);
-    bindForm(form, async () => {
-      const list = planned();
-      if (!list.length) throw new Error('Indiquez au moins une classe.');
-      const r = await api('POST', '/api/classes/bulk', { classes: list });
-      toast(`${r.created} classe(s) créée(s).${r.skipped.length ? ` Déjà existantes : ${r.skipped.join(', ')}.` : ''}`);
-      render();
-    });
+  // Regroupement par niveau, dans l'ordre déjà trié par le serveur.
+  const groups = [];
+  for (const c of classes) {
+    const key = levelKey(c);
+    let g = groups.find((x) => x.key === key);
+    if (!g) groups.push((g = { key, code: levelWord(c), name: LEVEL_NAMES[key] ?? (c.level || c.name), classes: [] }));
+    g.classes.push(c);
   }
-  $$('tr[data-class] select[name=main_teacher_id]', view).forEach((sel) => sel.addEventListener('change', async () => {
+  const withTeacher = classes.filter((c) => c.main_teacher_id).length;
+  const withStudents = classes.filter((c) => c.students > 0).length;
+  const sizes = [...new Set(groups.map((g) => g.classes.length))];
+  const levelsNote = groups.length
+    ? `${plural(groups.length, 'niveau')}${sizes.length === 1 ? ` · ${plural(sizes[0], 'classe')} par niveau` : ''}`
+    : 'Aucune classe pour le moment';
+  const scales = [...new Set(classes.map((c) => c.scale))];
+  const subtitle = [
+    year ? `Année scolaire ${year.label}` : '',
+    { primaire: 'Élémentaire', secondaire: 'Collège et lycée', mixte: 'Élémentaire, collège et lycée' }[state.me.school.school_type],
+    scales.length === 1 ? `notes sur ${scales[0]}` : '',
+  ].filter(Boolean).join(' · ');
+  const meter = (n, total, tone) => html`<div class="meter ${tone}"><i style="width:${total ? (n * 100) / total : 0}%"></i></div>`;
+  const teacherLabel = (c) => (c.cycle === 'primaire' ? 'Maître' : 'Professeur principal');
+
+  view.innerHTML = html`
+    <div class="page-head">
+      <div class="title-with-icon"><span class="title-icon">${icon('classes')}</span>
+        <div><h1>Classes</h1><p class="muted">${subtitle}</p></div></div>
+      ${admin ? html`<div class="row">
+        ${bulk ? html`<button class="btn lg" type="button" id="bulk-open">${icon('dashboard')}Créer les classes de l'élémentaire</button>` : ''}
+        <button class="btn primary lg" type="button" id="new-class">${icon('plus')}Nouvelle classe</button>
+      </div>` : ''}
+    </div>
+
+    <div class="stat-cards">
+      <div class="stat-card"><span class="label">Classes</span><strong>${classes.length}</strong><span class="note">${levelsNote}</span></div>
+      <div class="stat-card"><span class="label">Classes avec un ${hasPrimary() && !hasSecondaryCycle() ? 'maître' : 'maître ou prof. principal'}</span>
+        <strong>${withTeacher} <small>/ ${classes.length}</small></strong>${meter(withTeacher, classes.length, withTeacher === classes.length ? 'ok' : 'warn')}</div>
+      <div class="stat-card"><span class="label">Classes avec des élèves</span>
+        <strong>${withStudents} <small>/ ${classes.length}</small></strong>${meter(withStudents, classes.length, 'ok')}</div>
+    </div>
+
+    ${classes.length ? html`
+    <div class="list-toolbar">
+      <div class="seg" role="tablist">
+        ${[['all', 'Toutes', classes.length], ['noteacher', hasPrimary() && !hasSecondaryCycle() ? 'Sans maître' : 'Sans titulaire', classes.length - withTeacher], ['nostudents', 'Sans élèves', classes.length - withStudents]].map(([k, label, n], i) =>
+          html`<button type="button" role="tab" data-filter="${k}" class="${i === 0 ? 'on' : ''}" aria-selected="${i === 0}">${label} · ${n}</button>`)}
+      </div>
+      <label class="search">${icon('search')}<input type="search" id="class-search" placeholder="Rechercher une classe" aria-label="Rechercher une classe"></label>
+    </div>
+    <div class="level-grid">${groups.map((g) => html`<section class="card level-card">
+      <header><span class="level-code">${g.code}</span><h2>${g.name}</h2><span class="muted small">${plural(g.classes.length, 'classe')}</span></header>
+      ${g.classes.map((c) => html`<div class="class-item" data-class="${c.id}" data-teacher="${c.main_teacher_id ? 1 : 0}" data-students="${c.students}" data-search="${`${c.name} ${c.level} ${c.main_teacher_name ?? ''}`.toLowerCase()}">
+        <div class="class-item-top"><a class="class-name" href="#/classes/${c.id}">${c.name}</a>
+          <div class="row">
+            <a class="btn sm" href="#/classes/${c.id}">${icon('open')}Ouvrir</a>
+            <a class="btn sm" href="#/resultats/${c.id}">${icon('chart')}Résultats</a>
+          </div></div>
+        <div class="class-item-mid">
+          ${admin ? html`<select name="main_teacher_id" class="${c.main_teacher_id ? '' : 'todo-select'}" aria-label="${teacherLabel(c)} de ${c.name}">${teacherOptions(users, '— À désigner —').map(([v, l]) =>
+            html`<option value="${v}" ${raw(String(v) === String(c.main_teacher_id ?? '') ? 'selected' : '')}>${l}</option>`)}</select>`
+            : html`<span>${c.main_teacher_name || html`<span class="muted">${teacherLabel(c)} à désigner</span>`}</span>`}
+          ${c.students
+            ? html`<span class="count">${icon('students')}${plural(c.students, 'élève')}</span>`
+            : admin ? html`<a class="add-link" href="#/classes/${c.id}?onglet=eleves">${icon('plus')}Inscrire des élèves</a>` : html`<span class="muted small">Aucun élève</span>`}
+        </div>
+        <a class="class-item-foot" href="#/classes/${c.id}?onglet=matieres">${icon('subjects')}${plural(c.subjects, 'matière')}</a>
+      </div>`)}
+    </section>`)}</div>
+    <p class="empty" id="no-class" hidden>Aucune classe ne correspond.</p>
+    ${admin && !teachers.length ? html`<p class="small muted">Pour désigner les maîtres, ajoutez d'abord les enseignants dans <a href="#/enseignants">Équipe</a>.</p>` : ''}`
+    : html`<div class="card"><p class="empty">Aucune classe pour cette année.${admin ? ` Utilisez ${bulk ? '« Créer les classes de l\'élémentaire » ou ' : ''}« Nouvelle classe » ci-dessus.` : ''}</p></div>`}`.s;
+
+  // Filtres et recherche
+  let filter = 'all';
+  const apply = () => {
+    const q = $('#class-search', view)?.value.trim().toLowerCase() ?? '';
+    let shown = 0;
+    $$('.class-item', view).forEach((el) => {
+      const ok = (filter === 'all' || (filter === 'noteacher' && el.dataset.teacher === '0') || (filter === 'nostudents' && el.dataset.students === '0'))
+        && (!q || el.dataset.search.includes(q));
+      el.hidden = !ok;
+      shown += ok;
+    });
+    $$('.level-card', view).forEach((card) => { card.hidden = !$$('.class-item', card).some((el) => !el.hidden); });
+    const none = $('#no-class', view);
+    if (none) none.hidden = shown > 0;
+  };
+  $$('[data-filter]', view).forEach((b) => (b.onclick = () => {
+    filter = b.dataset.filter;
+    $$('[data-filter]', view).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', x === b); });
+    apply();
+  }));
+  $('#class-search', view)?.addEventListener('input', apply);
+  if (!admin) return;
+
+  $('#new-class', view).onclick = () => openDialog({
+    title: 'Nouvelle classe',
+    submitLabel: 'Créer la classe',
+    body: html`<div class="form-grid">
+        ${field('Nom de la classe', 'name', { required: true, placeholder: isPrimarySchool() ? 'Ex. : CE1 B' : 'Ex. : 6e A' })}
+        ${field('Niveau', 'level', { placeholder: 'Ex. : 6e, CM2, Tle S2' })}
+        ${selectField('Cycle', 'cycle', CYCLES, isPrimarySchool() ? 'primaire' : 'moyen')}
+        ${selectField('Barème', 'scale', [['', 'Automatique (sur 10 à l\'élémentaire, sur 20 sinon)'], ['20', 'Notes sur 20'], ['10', 'Notes sur 10']])}
+        ${selectField('Maître / professeur principal', 'main_teacher_id', teacherOptions(users))}
+      </div>`,
+    onSubmit: async (data) => {
+      const { id } = await api('POST', '/api/classes', data);
+      toast('Classe créée.');
+      go(`#/classes/${id}?onglet=${data.cycle === 'primaire' ? 'eleves' : 'matieres'}`);
+    },
+  });
+
+  if (bulk) {
+    const existing = new Set(classes.map((c) => c.name));
+    $('#bulk-open', view).onclick = () => {
+      openDialog({
+        title: "Créer les classes de l'élémentaire",
+        submitLabel: 'Créer les classes',
+        body: html`<p class="small muted" style="margin:0">Indiquez combien de classes vous avez à chaque niveau. Les matières de l'élémentaire sont ajoutées automatiquement à chaque classe ; les classes qui existent déjà sont ignorées.</p>
+          <div class="form-grid">${PRIMARY_LEVELS.map((l) => field(`Classes de ${l}`, l, { type: 'number', value: '0', min: 0, max: 8, inputmode: 'numeric' }))}</div>
+          <p class="small" id="bulk-preview"></p>`,
+        onSubmit: async (data) => {
+          const list = planned(data);
+          if (!list.length) throw new Error('Indiquez au moins une classe.');
+          const r = await api('POST', '/api/classes/bulk', { classes: list });
+          toast(`${r.created} classe(s) créée(s).${r.skipped.length ? ` Déjà existantes : ${r.skipped.join(', ')}.` : ''}`);
+          render();
+        },
+      });
+      const dlg = $('dialog.dialog:last-of-type');
+      const form = $('form', dlg);
+      const refresh = () => {
+        const list = planned(formData(form));
+        const fresh = list.filter((c) => !existing.has(c.name));
+        $('#bulk-preview', dlg).textContent = list.length
+          ? `Seront créées : ${fresh.map((c) => c.name).join(', ') || 'aucune (elles existent déjà)'}` : '';
+      };
+      form.addEventListener('input', refresh);
+    };
+    const planned = (data) => PRIMARY_LEVELS.flatMap((l) => sectionNames(l, Math.max(0, Math.min(8, Number(data[l]) || 0)))
+      .map((name) => ({ name, level: l, cycle: 'primaire' })));
+  }
+
+  $$('.class-item select[name=main_teacher_id]', view).forEach((sel) => sel.addEventListener('change', async () => {
     try {
-      await api('PUT', `/api/classes/${sel.closest('tr').dataset.class}/teacher`, { main_teacher_id: sel.value });
+      await api('PUT', `/api/classes/${sel.closest('.class-item').dataset.class}/teacher`, { main_teacher_id: sel.value });
       toast('Enseignant affecté.');
+      render();
     } catch (e) {
       toast(e.message, 'error');
     }
   }));
 }
+
+/** L'établissement a-t-il des classes de collège ou de lycée ? */
+const hasSecondaryCycle = () => state.me.school.school_type !== 'primaire';
 
 async function viewClass(view, [id], query) {
   const tab = query.get('onglet') || 'eleves';
