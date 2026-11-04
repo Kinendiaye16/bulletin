@@ -12,6 +12,9 @@
   --danger: #b42318;
   --danger-soft: #fdecea;
   --warning-soft: #fff6db;
+  --sidebar-bg: #0b6b3a;
+  --sidebar-text: #eaf5ee;
+  --sidebar-muted: #b9dcc6;
   --radius: 10px;
   --shadow: 0 1px 2px rgba(16, 32, 20, 0.06), 0 4px 16px rgba(16, 32, 20, 0.05);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -32,6 +35,7 @@
     --danger: #f07167;
     --danger-soft: #3a1d1b;
     --warning-soft: #3a321a;
+    --sidebar-bg: #0f4a2b;
     color-scheme: dark;
   }
 }
@@ -84,6 +88,18 @@ p { margin: 0 0 0.75em; }
 .nav a.active { background: var(--primary-soft); color: var(--primary-strong); }
 .sidebar .me { margin-top: auto; padding: 12px 8px 0; border-top: 1px solid var(--border); font-size: 0.85rem; }
 .sidebar .me strong { display: block; }
+
+/* Menu latéral vert (clair comme sombre) */
+.sidebar { background: var(--sidebar-bg); border-right-color: var(--sidebar-bg); color: var(--sidebar-text); }
+.sidebar .brand { color: #fff; }
+.sidebar .brand img { box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.55); border-radius: 7px; }
+.sidebar .brand small, .sidebar .muted { color: var(--sidebar-muted); }
+.sidebar .nav a { color: var(--sidebar-text); }
+.sidebar .nav a:hover { background: rgba(255, 255, 255, 0.1); }
+.sidebar .nav a.active { background: #fff; color: var(--sidebar-bg); font-weight: 600; }
+.sidebar .me { border-top-color: rgba(255, 255, 255, 0.2); }
+.sidebar .btn.ghost { color: #fff; }
+.sidebar .btn.ghost:hover { background: transparent; text-decoration: underline; }
 
 .main { min-width: 0; display: flex; flex-direction: column; }
 .topbar {
