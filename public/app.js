@@ -47,6 +47,13 @@ const ICONS = {
   chevron: '<path d="m9 18 6-6-6-6"/>',
   arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
   menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
+  quote: '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  pin: '<path d="M20 10c0 4.99-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 14.99 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
+  printer: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  tick: '<path d="M20 6 9 17l-5-5"/>',
   userPlus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
   file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M8 17v-4"/><path d="M13 17V9"/><path d="M18 17v-7"/>',
@@ -1659,73 +1666,147 @@ async function viewTeachers(view) {
 
 // =============================================================== établissement
 
-let schoolSavedAt = null; // heure du dernier enregistrement, affichée sous le formulaire
+let schoolSavedAt = null; // heure du dernier enregistrement, affichée à côté du bouton
+
+/** Champ de saisie précédé d'une icône (ou d'un préfixe comme « +221 »). */
+function iconField(label, name, { ic, prefix, ...opts }) {
+  const f = field(label, name, opts).s;
+  const lead = prefix ? `<span class="prefix">${esc(prefix)}</span>` : icon(ic).s;
+  return raw(f.replace(/<input /, `<span class="input-deco">${lead}<input `).replace(/<\/label>$/, '</span></label>'));
+}
+
+function schoolPreview(school, yearLabel, periodName, className) {
+  return html`<div class="paper">
+    ${bulletinHeader(school, yearLabel, className)}
+    <div class="paper-title">Bulletin de notes${periodName ? ` · ${periodName}` : ''}</div>
+    <div class="paper-lines"><i></i><i></i><i></i></div>
+  </div>`;
+}
 
 async function viewSchool(view) {
   const { school, years } = state.me;
   const savedAt = schoolSavedAt;
   schoolSavedAt = null;
-  view.innerHTML = html`
-    <div class="page-head"><div><h1>Établissement</h1><p class="muted">Ces informations apparaissent en en-tête des bulletins.</p></div></div>
-    <div class="card"><form id="f" class="stack">
-      <div class="form-grid">
-        ${field("Nom de l'établissement", 'name', { required: true, value: school.name })}
-        ${selectField('Statut', 'status', [['prive', 'Privé'], ['public', 'Public']], school.status)}
-        ${selectField("Niveaux d'enseignement", 'school_type', [['secondaire', 'Collège et lycée'], ['primaire', 'Élémentaire (CI – CM2)'], ['mixte', 'Élémentaire, collège et lycée']], school.school_type)}
-        ${field('Devise', 'motto', { value: school.motto, placeholder: 'Ex. : Travail – Discipline – Réussite' })}
-        ${field("Nom du chef d'établissement", 'director_name', { value: school.director_name })}
-        ${field("Inspection d'Académie (IA)", 'academy', { value: school.academy, placeholder: 'Ex. : Dakar' })}
-        ${field("Inspection de l'Éducation et de la Formation (IEF)", 'ief', { value: school.ief, placeholder: 'Ex. : Dakar Plateau' })}
-        ${field('Adresse', 'address', { value: school.address })}
-        ${field('Ville', 'city', { value: school.city })}
-        ${field('Téléphone', 'phone', { type: 'tel', value: school.phone })}
-        ${field('E-mail', 'email', { type: 'email', value: school.email })}
-      </div>
-      ${isPrimarySchool() ? html`<input type="hidden" name="compo_weight" value="${school.compo_weight}">`
-        : html`<h3>Règle de calcul</h3>${selectField(hasPrimary() ? 'Moyenne de chaque matière au collège et au lycée' : 'Moyenne de chaque matière', 'compo_weight', [
-          ['1', '(Moyenne des devoirs + Composition) ÷ 2'],
-          ['2', '(Moyenne des devoirs + 2 × Composition) ÷ 3'],
-          ['3', '(Moyenne des devoirs + 3 × Composition) ÷ 4'],
-        ], school.compo_weight)}`}
-      <p class="form-error" hidden></p>
-      <div class="row"><button class="btn primary" type="submit">Enregistrer</button>
-        ${savedAt ? html`<span class="saved-note">✓ Informations enregistrées à ${savedAt}</span>` : ''}</div>
-    </form></div>
+  const classes = await api('GET', '/api/classes').catch(() => []);
+  const activeYear = years.find((y) => y.id === state.me.activeYearId);
+  const periodName = activeYear?.periods.find((p) => p.id === state.periodId)?.name ?? activeYear?.periods[0]?.name ?? '';
+  const sampleClass = classes[0]?.name ?? (isPrimarySchool() ? 'CI A' : '6e A');
+  const preview = (s) => schoolPreview(s, activeYear?.label ?? '', periodName, sampleClass);
 
-    <div class="card"><h2>Aperçu de l'en-tête des bulletins</h2>
-      <p class="small muted">Voici comment ces informations apparaissent en haut de chaque bulletin.</p>
-      <div class="bulletin preview">${bulletinHeader(school, years.find((y) => y.id === state.me.activeYearId)?.label ?? '', isPrimarySchool() ? 'CI A' : '6e A')}</div>
+  view.innerHTML = html`
+    <div class="page-head school-head">
+      <div class="title-with-icon"><span class="title-icon">${icon('school')}</span>
+        <div><h1>Établissement</h1><p class="muted">Ces informations apparaissent en en-tête de tous les bulletins.</p></div></div>
+      <div class="row">
+        ${savedAt ? html`<span class="saved-note">${icon('tick')}Enregistré à ${savedAt}</span>` : ''}
+        <button class="btn lg" type="button" id="cancel">Annuler</button>
+        <button class="btn primary lg" type="submit" form="f">${icon('tick')}Enregistrer</button>
+      </div>
     </div>
 
-    <div class="card"><h2>Années scolaires</h2>
-      <div class="table-wrap"><table class="data">
-        <thead><tr><th>Année</th><th>Périodes</th><th></th></tr></thead>
-        <tbody>${years.map((y) => html`<tr>
-          <td><strong>${y.label}</strong> ${y.id === state.me.activeYearId ? html`<span class="badge green">Active</span>` : ''}</td>
-          <td>${y.periods.map((p) => p.name).join(' · ')}</td>
-          <td class="actions"><button class="btn sm" data-edit-year="${y.id}">Modifier</button>
-            ${y.id !== state.me.activeYearId ? html`<button class="btn sm" data-activate="${y.id}">Activer</button>` : ''}</td>
-        </tr>`)}</tbody></table></div>
-      <details class="panel" style="margin-top:14px"><summary>+ Nouvelle année scolaire</summary>
-        <form id="y" class="stack"><div class="form-grid">
-          ${field('Année', 'label', { required: true, placeholder: 'Ex. : 2027-2028' })}
-          ${selectField('Découpage', 'periodType', [['semestre', 'Semestres'], ['trimestre', 'Trimestres']])}
-        </div><p class="small muted">La nouvelle année devient l'année active. Les classes se créent ensuite pour cette année.</p>
-        <p class="form-error" hidden></p><div><button class="btn primary" type="submit">Créer</button></div></form>
-      </details>
-    </div>`.s;
-  bindForm($('#f'), async (data) => {
+    <div class="school-grid">
+      <form id="f" class="school-form">
+        <section class="card form-card">
+          <header><h2>Identité de l'école</h2><p>Nom, statut et devise affichés sur les bulletins.</p></header>
+          <div class="form-card-body">
+            ${field("Nom de l'établissement", 'name', { required: true, value: school.name })}
+            <div class="two">
+              ${selectField('Statut', 'status', [['prive', 'Privé'], ['public', 'Public']], school.status)}
+              ${selectField("Niveaux d'enseignement", 'school_type', [['primaire', 'Élémentaire (CI – CM2)'], ['secondaire', 'Collège et lycée'], ['mixte', 'Élémentaire, collège et lycée']], school.school_type)}
+            </div>
+            <div class="motto">${iconField('Devise', 'motto', { ic: 'quote', value: school.motto, placeholder: 'Ex. : Travail – Discipline – Réussite' })}</div>
+          </div>
+        </section>
+
+        <section class="card form-card">
+          <header><h2>Direction et rattachement</h2><p>Chef d'établissement et autorités académiques.</p></header>
+          <div class="form-card-body">
+            ${iconField("Nom du chef d'établissement", 'director_name', { ic: 'user', value: school.director_name })}
+            <div class="two">
+              ${field("Inspection d'Académie (IA)", 'academy', { value: school.academy, placeholder: 'Ex. : Dakar' })}
+              ${field("Inspection de l'Éducation et de la Formation (IEF)", 'ief', { value: school.ief, placeholder: 'Ex. : Dakar Plateau' })}
+            </div>
+          </div>
+        </section>
+
+        <section class="card form-card">
+          <header><h2>Coordonnées</h2><p>Pour que les parents puissent joindre l'école.</p></header>
+          <div class="form-card-body">
+            <div class="two">
+              ${iconField('Adresse', 'address', { ic: 'pin', value: school.address, placeholder: 'Ex. : Tivaouane Peul, APIX' })}
+              ${field('Ville', 'city', { value: school.city, placeholder: 'Ex. : Dakar' })}
+            </div>
+            <div class="two">
+              ${iconField('Téléphone', 'phone', { prefix: '+221', type: 'tel', value: school.phone, placeholder: '33 800 00 00' })}
+              ${iconField('E-mail', 'email', { ic: 'mail', type: 'email', value: school.email, placeholder: 'contact@ecole.sn' })}
+            </div>
+          </div>
+        </section>
+
+        ${isPrimarySchool() ? html`<input type="hidden" name="compo_weight" value="${school.compo_weight}">`
+          : html`<section class="card form-card">
+          <header><h2>Règle de calcul</h2><p>Poids de la composition dans la moyenne de chaque matière.</p></header>
+          <div class="form-card-body">${selectField(hasPrimary() ? 'Moyenne de chaque matière au collège et au lycée' : 'Moyenne de chaque matière', 'compo_weight', [
+            ['1', '(Moyenne des devoirs + Composition) ÷ 2'],
+            ['2', '(Moyenne des devoirs + 2 × Composition) ÷ 3'],
+            ['3', '(Moyenne des devoirs + 3 × Composition) ÷ 4'],
+          ], school.compo_weight)}</div>
+        </section>`}
+        <p class="form-error" hidden></p>
+      </form>
+
+      <aside class="preview-col">
+        <div class="preview-head"><h2>Aperçu du bulletin</h2><span class="pill live">Mis à jour en direct</span></div>
+        <div class="preview-frame" id="preview">${preview(school)}</div>
+        ${classes[0] ? html`<a class="btn block" href="#/bulletins/${classes[0].id}?periode=${state.periodId}">${icon('printer')}Voir un bulletin exemple</a>` : ''}
+      </aside>
+    </div>
+
+    <section class="card form-card years-card">
+      <header class="with-action"><div><h2>Années scolaires</h2><p>L'année active est celle utilisée pour la saisie des notes.</p></div>
+        <button class="btn outline-primary" type="button" id="new-year">${icon('plus')}Nouvelle année scolaire</button></header>
+      <div class="form-card-body">${years.map((y) => {
+        const active = y.id === state.me.activeYearId;
+        return html`<div class="year-row ${active ? 'active' : ''}">
+          <span class="year-icon">${icon('calendar')}</span>
+          <div class="year-label"><strong>${y.label}</strong>${active ? html`<span class="badge solid">Active</span>` : ''}</div>
+          <div class="chips">${y.periods.map((p) => html`<span class="chip ${active && p.id === state.periodId ? 'current' : ''}">${p.name}${active && p.id === state.periodId ? ' · en cours' : ''}</span>`)}</div>
+          <div class="row">
+            ${active ? '' : html`<button class="btn sm" data-activate="${y.id}">Activer</button>`}
+            <button class="btn" data-edit-year="${y.id}">${icon('notes')}Modifier</button>
+          </div>
+        </div>`;
+      })}</div>
+    </section>`.s;
+
+  const form = $('#f', view);
+  // Aperçu mis à jour à chaque frappe, à partir des valeurs du formulaire.
+  const refresh = () => { $('#preview', view).innerHTML = preview({ ...school, ...formData(form) }).s; };
+  form.addEventListener('input', refresh);
+  form.addEventListener('change', refresh);
+  $('#cancel', view).onclick = () => { form.reset(); refresh(); $('.form-error', form).hidden = true; };
+
+  bindForm(form, async (data) => {
     await api('PUT', '/api/school', data);
     await loadMe();
     toast('Informations enregistrées.');
     schoolSavedAt = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     render();
   });
-  bindForm($('#y'), async (data) => {
-    await api('POST', '/api/years', data);
-    await loadMe();
-    toast('Année scolaire créée.');
-    render();
+  $('#new-year', view).onclick = () => openDialog({
+    title: 'Nouvelle année scolaire',
+    submitLabel: 'Créer',
+    body: html`<div class="form-grid">
+        ${field('Année', 'label', { required: true, placeholder: 'Ex. : 2027-2028' })}
+        ${selectField('Découpage', 'periodType', [['trimestre', 'Trimestres'], ['semestre', 'Semestres']], activeYear?.periods.length === 2 ? 'semestre' : 'trimestre')}
+      </div>
+      <p class="small muted">La nouvelle année devient l'année active. Les classes se créent ensuite pour cette année.</p>`,
+    onSubmit: async (data) => {
+      await api('POST', '/api/years', data);
+      await loadMe();
+      toast('Année scolaire créée.');
+      render();
+    },
   });
   $$('[data-activate]', view).forEach((b) => (b.onclick = async () => {
     await api('POST', `/api/years/${b.dataset.activate}/activate`);
