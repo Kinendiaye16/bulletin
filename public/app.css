@@ -715,6 +715,17 @@ table.grades td.computed { background: var(--surface-2); font-weight: 600; }
 .addr-list code { font-size: 1.15rem; font-weight: 700; color: var(--primary-strong); background: var(--primary-soft); padding: 6px 12px; border-radius: 8px; }
 .install-grid code { overflow-wrap: anywhere; }
 
+/* ---------- mot de passe oublié, code de secours, mon compte */
+.recovery-code { font: 700 1.6rem/1.2 ui-monospace, Consolas, monospace; letter-spacing: 0.08em; text-align: center; padding: 14px; border-radius: 10px; background: var(--primary-soft); color: var(--primary-strong); margin: 4px 0; user-select: all; }
+.forgot-help { display: grid; gap: 6px; padding: 12px 14px; border-radius: 10px; background: var(--surface-2); margin-bottom: 14px; font-size: 0.9rem; }
+.forgot-help p { margin: 0; }
+.account-recovery { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; display: grid; gap: 6px; justify-items: start; }
+.account-recovery h3, .account-recovery p { margin: 0; }
+.recovery-alert { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.recovery-alert span { flex: 1; min-width: 220px; }
+.sidebar button.me-text { border: 0; background: transparent; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; }
+.sidebar button.me-text:hover strong { text-decoration: underline; }
+
 /* ---------- pages publiques */
 /* Pages de connexion et d'inscription : photo de classe en fond, voile vert pour la lisibilité */
 .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; position: relative; isolation: isolate; }

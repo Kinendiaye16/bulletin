@@ -164,6 +164,11 @@ if (!subjectColumns.includes('cycle')) {
   const update = db.prepare('UPDATE subjects SET cycle = ? WHERE id = ?');
   for (const s of db.prepare('SELECT id, name FROM subjects').all()) update.run(defaultSubjectCycle(s.name), s.id);
 }
+// Code de secours (haché) pour retrouver l'accès en cas d'oubli du mot de passe
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!userColumns.includes('recovery_hash')) {
+  db.exec("ALTER TABLE users ADD COLUMN recovery_hash TEXT NOT NULL DEFAULT ''");
+}
 // Série des classes du lycée (L1, L2, S1, S2…)
 const classColumns = db.prepare('PRAGMA table_info(classes)').all().map((c) => c.name);
 if (!classColumns.includes('serie')) {

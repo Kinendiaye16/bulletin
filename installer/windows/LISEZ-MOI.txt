@@ -46,6 +46,18 @@ Arrêter Ndamely), remplacez  C:\ProgramData\Ndamely\bulletin.db  par le
 fichier de sauvegarde (en le renommant bulletin.db), puis rouvrez Ndamely.
 
 
+MOT DE PASSE OUBLIÉ
+-------------------
+- Un enseignant : l'administrateur ouvre « Équipe », clique sur « Modifier »
+  à côté de son nom, puis « Générer un mot de passe provisoire ».
+- L'administrateur : sur la page de connexion, « Mot de passe oublié ? »,
+  avec le code de secours donné à la création de l'établissement
+  (un nouveau code peut être créé à tout moment dans « Mon compte »).
+- Plus de code de secours : sur l'ordinateur de l'école, menu Démarrer >
+  Ndamely > Mot de passe oublié. Choisissez le compte : un mot de passe
+  provisoire s'affiche.
+
+
 4. METTRE À JOUR
 ----------------
 Lancez « Installer Ndamely.cmd » de la nouvelle version : le logiciel est

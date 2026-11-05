@@ -279,6 +279,7 @@ window.addEventListener('offline', updateSync);
 const routes = [
   [/^#\/connexion$/, viewLogin, { public: true }],
   [/^#\/inscription$/, viewRegister, { public: true }],
+  [/^#\/mot-de-passe-oublie$/, viewForgot, { public: true }],
   [/^#\/$/, viewDashboard, { title: 'Tableau de bord', nav: '#/' }],
   [/^#\/classes$/, viewClasses, { title: 'Classes', nav: '#/classes' }],
   [/^#\/classes\/(\d+)$/, viewClass, { title: 'Classe', nav: '#/classes' }],
@@ -360,7 +361,7 @@ function shell(opts) {
       <nav class="nav">${links.map(([href, label, ic]) => html`<a href="${href}" class="${opts.nav === href ? 'active' : ''}">${icon(ic)}<span>${label}</span></a>`)}</nav>
       <div class="me">
         <span class="avatar">${initials(user.name)}</span>
-        <span class="me-text"><strong>${user.name}</strong><span>${user.role === 'admin' ? 'Administrateur' : 'Enseignant'}</span></span>
+        <button type="button" class="me-text" id="my-account" title="Mon compte : mot de passe, code de secours"><strong>${user.name}</strong><span>${user.role === 'admin' ? 'Administrateur' : 'Enseignant'} · Mon compte</span></button>
         <button class="icon-btn" id="logout" title="Se déconnecter" aria-label="Se déconnecter">${icon('logout')}</button>
       </div>
     </aside>
@@ -396,6 +397,7 @@ function bindShell(opts) {
   };
   $('#menu').onclick = () => $('.app').classList.toggle('menu-open');
   $('#crumb-back').onclick = () => goBack(opts.nav);
+  $('#my-account').onclick = openAccount;
   bindPeriodSelects(document);
   updateSync();
 }
@@ -423,6 +425,7 @@ async function viewLogin(view) {
       ${field('Mot de passe', 'password', { type: 'password', required: true, autocomplete: 'current-password' })}
       <p class="form-error" hidden></p>
       <button class="btn primary" type="submit">Se connecter</button>
+      <p class="center small" style="margin:0"><a href="#/mot-de-passe-oublie">Mot de passe oublié ?</a></p>
     </form>
     <p class="center small" style="margin-top:16px">Nouvel établissement ? <a href="#/inscription">Créer un compte</a></p>
   </div>`.s;
@@ -461,10 +464,96 @@ async function viewRegister(view) {
     <p class="center small" style="margin-top:16px">Déjà inscrit ? <a href="#/connexion">Se connecter</a></p>
   </div>`.s;
   bindForm($('#f'), async (data) => {
-    await api('POST', '/api/auth/register', data);
+    const r = await api('POST', '/api/auth/register', data);
     await loadMe();
-    go('#/');
+    showRecoveryCode(r.recoveryCode, () => go('#/'));
   });
+}
+
+/** Affiche un code de secours (une seule fois), puis continue. */
+function showRecoveryCode(code, then = () => {}) {
+  const dlg = openDialog({
+    title: 'Votre code de secours',
+    submitLabel: "Je l'ai noté",
+    body: html`<p>Si vous oubliez votre mot de passe, ce code vous permettra d'en choisir un nouveau
+        (lien « Mot de passe oublié ? » sur la page de connexion).</p>
+      <p class="recovery-code">${code}</p>
+      <p class="small muted">Notez-le sur papier et rangez-le en lieu sûr. Il ne sera plus affiché.
+        Vous pourrez en créer un nouveau dans « Mon compte ».</p>
+      <div><button type="button" class="btn sm" data-copy-code>${icon('file')}Copier le code</button></div>`,
+    onSubmit: async () => {},
+  });
+  $('[data-copy-code]', dlg).onclick = () => navigator.clipboard?.writeText(code).then(() => toast('Code copié.'), () => {});
+  dlg.addEventListener('close', then, { once: true });
+}
+
+async function viewForgot(view) {
+  view.innerHTML = html`<div class="card">
+    <div class="brand"><img src="/icon.svg" alt=""><span>Mot de passe oublié</span></div>
+    <div class="forgot-help">
+      <p><strong>Vous êtes enseignant ?</strong> Demandez à l'administrateur de l'école : dans « Équipe », il peut vous
+        donner un nouveau mot de passe provisoire.</p>
+      <p><strong>Vous êtes administrateur ?</strong> Utilisez le code de secours reçu à la création de l'établissement.</p>
+    </div>
+    <form class="stack" id="f">
+      ${field('Adresse e-mail', 'email', { type: 'email', required: true, autocomplete: 'username' })}
+      ${field('Code de secours', 'code', { required: true, placeholder: 'ABCD-EFGH-JKMN', autocomplete: 'off' })}
+      ${field('Nouveau mot de passe (8 caractères minimum)', 'password', { type: 'password', required: true, autocomplete: 'new-password' })}
+      ${field('Répétez le nouveau mot de passe', 'password2', { type: 'password', required: true, autocomplete: 'new-password' })}
+      <p class="form-error" hidden></p>
+      <button class="btn primary" type="submit">Changer mon mot de passe</button>
+    </form>
+    <p class="small muted" style="margin-top:14px">Plus de code de secours ? Sur l'ordinateur de l'école où Ndamely est installé :
+      menu Démarrer › Ndamely › <strong>Mot de passe oublié</strong>.</p>
+    <p class="center small" style="margin-top:10px"><a href="#/connexion">Retour à la connexion</a></p>
+  </div>`.s;
+  bindForm($('#f'), async (data) => {
+    if (data.password !== data.password2) throw new Error('Les deux mots de passe ne sont pas identiques.');
+    const r = await api('POST', '/api/auth/recover', { email: data.email, code: data.code, password: data.password });
+    await loadMe();
+    toast('Mot de passe changé.');
+    showRecoveryCode(r.recoveryCode, () => go('#/'));
+  });
+}
+
+/** Fenêtre « Mon compte » : changer son mot de passe, créer un nouveau code de secours. */
+function openAccount() {
+  const { user } = state.me;
+  const dlg = openDialog({
+    title: 'Mon compte',
+    submitLabel: 'Changer le mot de passe',
+    body: html`<p class="small muted" style="margin:0">${user.name} · ${user.email}</p>
+      <h3 style="margin:4px 0 0">Changer mon mot de passe</h3>
+      ${field('Mot de passe actuel', 'current', { type: 'password', required: true, autocomplete: 'current-password' })}
+      ${field('Nouveau mot de passe (8 caractères minimum)', 'password', { type: 'password', required: true, autocomplete: 'new-password' })}
+      ${field('Répétez le nouveau mot de passe', 'password2', { type: 'password', required: true, autocomplete: 'new-password' })}
+      <div class="account-recovery">
+        <h3>Code de secours</h3>
+        <p class="small muted">${user.has_recovery
+          ? "Vous avez un code de secours. Si vous l'avez perdu, créez-en un nouveau : l'ancien ne fonctionnera plus."
+          : "Vous n'avez pas encore de code de secours. Créez-le maintenant : il vous permettra de retrouver l'accès si vous oubliez votre mot de passe."}</p>
+        <button type="button" class="btn sm" data-new-code>${icon('shield')}Créer un nouveau code de secours</button>
+      </div>`,
+    onSubmit: async (data) => {
+      if (data.password !== data.password2) throw new Error('Les deux mots de passe ne sont pas identiques.');
+      await api('POST', '/api/me/password', { current: data.current, password: data.password });
+      toast('Mot de passe changé.');
+    },
+  });
+  $('[data-new-code]', dlg).onclick = () => {
+    dlg.close();
+    openDialog({
+      title: 'Nouveau code de secours',
+      submitLabel: 'Créer le code',
+      body: html`<p class="small muted" style="margin:0">Pour votre sécurité, confirmez avec votre mot de passe.</p>
+        ${field('Mot de passe', 'password', { type: 'password', required: true, autocomplete: 'current-password' })}`,
+      onSubmit: async (data) => {
+        const r = await api('POST', '/api/me/recovery-code', data);
+        await loadMe();
+        setTimeout(() => showRecoveryCode(r.recoveryCode, () => render()), 0);
+      },
+    });
+  };
 }
 
 // =============================================================== tableau de bord
@@ -549,6 +638,9 @@ function renderDashboard(view, ctx) {
   const stat = (label, value) => html`<div class="hero-stat"><span>${label}</span><strong>${value ?? 0}</strong></div>`;
 
   view.innerHTML = html`
+    ${admin && !user.has_recovery ? html`<div class="alert recovery-alert">${icon('shield')}<span><strong>Créez votre code de secours.</strong>
+      Il vous permettra de retrouver l'accès à Ndamely si vous oubliez votre mot de passe.</span>
+      <button class="btn sm primary" type="button" id="make-code">Créer mon code</button></div>` : ''}
     <section class="hero">
       <div class="hero-top">
         <div>
@@ -611,6 +703,7 @@ function renderDashboard(view, ctx) {
     </div>`.s;
 
   bindPeriodSelects(view);
+  $('#make-code', view)?.addEventListener('click', openAccount);
   const heroSync = $('#hero-sync', view);
   const sync = $('#sync');
   if (heroSync && sync) {
@@ -2112,13 +2205,35 @@ async function viewTeachers(view, _params, query) {
       body: html`${field('Prénom et nom', 'name', { required: true, value: u.name })}
         ${iconField('Téléphone', 'phone', { prefix: '+221', type: 'tel', value: u.phone })}
         ${hasSecondary && u.role === 'enseignant' ? subjectChecks(subjects, u.subject_ids) : ''}
-        ${field('Nouveau mot de passe (laisser vide pour ne pas changer)', 'password', { autocomplete: 'new-password' })}`,
+        <div class="account-recovery">
+          <h3>Mot de passe oublié ?</h3>
+          <p class="small muted">Donnez-lui un mot de passe provisoire : il pourra le changer ensuite dans « Mon compte ».</p>
+          <button type="button" class="btn sm" data-reset-pw>${icon('shield')}Générer un mot de passe provisoire</button>
+        </div>`,
       onSubmit: async (data, f) => {
         await api('PUT', `/api/users/${u.id}`, hasSecondary && u.role === 'enseignant' ? withSubjects(data, f) : data);
         toast('Enregistré.');
         render();
       },
     });
+    const dlg = $('dialog.dialog:last-of-type');
+    $('[data-reset-pw]', dlg).onclick = async () => {
+      if (!confirm(`Remplacer le mot de passe de ${u.name} par un mot de passe provisoire ?`)) return;
+      try {
+        const r = await api('POST', `/api/users/${u.id}/reset-password`);
+        dlg.close();
+        openDialog({
+          title: 'Mot de passe provisoire',
+          submitLabel: 'Fermer',
+          body: html`<p>Nouveau mot de passe de <strong>${u.name}</strong> (${u.email}) :</p>
+            <p class="recovery-code">${r.password}</p>
+            <p class="small muted">Communiquez-le-lui. Il pourra le changer dans « Mon compte » après s'être connecté.</p>`,
+          onSubmit: async () => {},
+        });
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    };
   }));
   $$('[data-del]', view).forEach((b) => (b.onclick = async () => {
     const u = users.find((x) => x.id === Number(b.dataset.del));

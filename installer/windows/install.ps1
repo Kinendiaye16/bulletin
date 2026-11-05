@@ -18,7 +18,7 @@ Start-Sleep -Milliseconds 500
 Write-Host "  Copie des fichiers dans $Cible"
 if (Test-Path (Join-Path $Cible 'app')) { Remove-Item -Recurse -Force (Join-Path $Cible 'app') }
 New-Item -ItemType Directory -Force -Path $Cible | Out-Null
-foreach ($element in 'app', 'node', 'Ndamely.ps1', 'Arreter-Ndamely.ps1', 'uninstall.ps1', 'Desinstaller Ndamely.cmd', 'ndamely.ico', 'LISEZ-MOI.txt') {
+foreach ($element in 'app', 'node', 'Ndamely.ps1', 'Arreter-Ndamely.ps1', 'uninstall.ps1', 'Desinstaller Ndamely.cmd', 'Mot-de-passe-oublie.ps1', 'ndamely.ico', 'LISEZ-MOI.txt') {
   Copy-Item -Recurse -Force (Join-Path $Source $element) $Cible
 }
 
@@ -30,14 +30,15 @@ icacls $Donnees /grant '*S-1-5-32-545:(OI)(CI)M' /T /Q | Out-Null   # groupe « 
 # 4. Raccourcis : bureau, menu Démarrer, démarrage automatique de Windows
 $shell = New-Object -ComObject WScript.Shell
 $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-function New-Raccourci($chemin, $script, $options, $description) {
+function New-Raccourci($chemin, $script, $options, $description, [switch]$Visible) {
   $r = $shell.CreateShortcut($chemin)
   if ($script -like '*.cmd') {
     $r.TargetPath = Join-Path $Cible $script
   } else {
     $r.TargetPath = $powershell
-    $r.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $Cible $script)`" $options".Trim()
-    $r.WindowStyle = 7   # réduite : aucune fenêtre noire ne reste à l'écran
+    $fenetre = if ($Visible) { '' } else { '-WindowStyle Hidden ' }
+    $r.Arguments = "-NoProfile -ExecutionPolicy Bypass $fenetre-File `"$(Join-Path $Cible $script)`" $options".Trim()
+    if (-not $Visible) { $r.WindowStyle = 7 }   # réduite : aucune fenêtre noire ne reste à l'écran
   }
   $r.WorkingDirectory = $Cible
   $r.IconLocation = Join-Path $Cible 'ndamely.ico'
@@ -51,6 +52,7 @@ New-Item -ItemType Directory -Force -Path $menu | Out-Null
 New-Raccourci (Join-Path $bureau 'Ndamely.lnk') 'Ndamely.ps1' '' 'Ouvrir Ndamely'
 New-Raccourci (Join-Path $menu 'Ndamely.lnk') 'Ndamely.ps1' '' 'Ouvrir Ndamely'
 New-Raccourci (Join-Path $menu 'Arrêter Ndamely.lnk') 'Arreter-Ndamely.ps1' '' 'Arrêter Ndamely'
+New-Raccourci (Join-Path $menu 'Mot de passe oublié.lnk') 'Mot-de-passe-oublie.ps1' '' 'Donner un mot de passe provisoire à un compte' -Visible
 New-Raccourci (Join-Path $menu 'Désinstaller Ndamely.lnk') 'Desinstaller Ndamely.cmd' '' 'Désinstaller Ndamely (les données sont conservées)'
 New-Raccourci (Join-Path $demarrage 'Ndamely.lnk') 'Ndamely.ps1' '-SansNavigateur' 'Démarrer Ndamely avec Windows'
 Write-Host '  Raccourcis créés (bureau, menu Démarrer, démarrage de Windows)'

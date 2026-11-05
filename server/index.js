@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { db, tx, ROOT } from './db.js';
 import { backupTo, listBackups, scheduleBackups, localAddresses, BACKUP_DIR } from './backup.js';
-import { hashPassword, verifyPassword, newToken } from './auth.js';
+import { hashPassword, verifyPassword, newToken, newRecoveryCode, normalizeRecoveryCode } from './auth.js';
 import { createSchool, createYear, addDefaultSubjects, PERIOD_NAMES } from './school.js';
 import { subjectCyclesForClass, SUBJECT_CYCLES, SERIES } from './defaults.js';
 import { computeClassResults, computeAnnual } from '../shared/calc.js';
@@ -197,8 +197,43 @@ route('POST', '/api/auth/register', ({ body, ...ctx }) => {
     directorName: str(body.directorName, 120),
     admin,
   });
+  const recoveryCode = setRecoveryCode(userId);
   startSession(ctx, userId);
-  return { ok: true };
+  return { ok: true, recoveryCode };
+}, 'public');
+
+/** Crée un nouveau code de secours pour l'utilisateur (l'ancien ne marche plus) et le renvoie en clair, une seule fois. */
+function setRecoveryCode(userId) {
+  const code = newRecoveryCode();
+  db.prepare('UPDATE users SET recovery_hash = ? WHERE id = ?').run(hashPassword(normalizeRecoveryCode(code)), userId);
+  return code;
+}
+
+// Limite des essais de récupération : 5 par adresse e-mail et par quart d'heure.
+const recoverTries = new Map();
+function checkRecoverTries(key) {
+  const now = Date.now();
+  const t = recoverTries.get(key);
+  if (!t || now - t.since > 15 * 60 * 1000) return recoverTries.set(key, { since: now, n: 1 });
+  if (++t.n > 5) fail(429, 'Trop d’essais. Réessayez dans un quart d’heure.');
+}
+
+// Mot de passe oublié : e-mail + code de secours, puis nouveau mot de passe. Un nouveau code est donné.
+route('POST', '/api/auth/recover', ({ body, ...ctx }) => {
+  const mail = str(body.email).toLowerCase();
+  checkRecoverTries(mail);
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(mail);
+  const code = normalizeRecoveryCode(body.code);
+  if (!user || !user.recovery_hash || !code || !verifyPassword(code, user.recovery_hash)) {
+    fail(400, 'E-mail ou code de secours incorrect.');
+  }
+  const pass = password(body.password);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(pass), user.id);
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+  recoverTries.delete(mail);
+  const recoveryCode = setRecoveryCode(user.id);
+  startSession(ctx, user.id);
+  return { ok: true, recoveryCode };
 }, 'public');
 
 route('POST', '/api/auth/login', ({ body, ...ctx }) => {
@@ -219,7 +254,24 @@ route('GET', '/api/me', ({ user }) => {
   const years = db.prepare('SELECT * FROM school_years WHERE school_id = ? ORDER BY label DESC').all(user.school_id);
   for (const y of years) y.periods = periodsOf(y.id);
   const { token, ...me } = user;
+  me.has_recovery = Boolean(db.prepare('SELECT recovery_hash FROM users WHERE id = ?').get(user.id)?.recovery_hash);
   return { user: me, school: schoolOf(user.school_id), years, activeYearId: activeYear(user.school_id)?.id ?? null };
+}, 'user');
+
+// Mon compte : changer son mot de passe (en donnant l'actuel)
+route('POST', '/api/me/password', ({ user, body }) => {
+  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
+  if (!verifyPassword(String(body.current ?? ''), row.password_hash)) fail(400, 'Le mot de passe actuel est incorrect.');
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password(body.password)), user.id);
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(user.id, user.token);
+  return { ok: true };
+}, 'user');
+
+// Mon compte : nouveau code de secours (en donnant son mot de passe)
+route('POST', '/api/me/recovery-code', ({ user, body }) => {
+  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
+  if (!verifyPassword(String(body.password ?? ''), row.password_hash)) fail(400, 'Mot de passe incorrect.');
+  return { recoveryCode: setRecoveryCode(user.id) };
 }, 'user');
 
 // ---------------------------------------------------------------- établissement et années
@@ -411,6 +463,16 @@ route('PUT', '/api/users/:id', ({ user, params, body }) => {
     db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(target.id, user.token);
   }
   return { ok: true };
+});
+
+// Mot de passe provisoire pour un membre qui a oublié le sien (donné par l'administrateur)
+route('POST', '/api/users/:id/reset-password', ({ user, params }) => {
+  const target = db.prepare('SELECT id FROM users WHERE id = ? AND school_id = ?').get(toId(params.id), user.school_id);
+  if (!target) fail(404, 'Utilisateur introuvable.');
+  const temp = newRecoveryCode().replace(/-/g, '').slice(0, 10).toLowerCase();
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(temp), target.id);
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?').run(target.id, user.token);
+  return { password: temp };
 });
 
 route('DELETE', '/api/users/:id', ({ user, params }) => {
