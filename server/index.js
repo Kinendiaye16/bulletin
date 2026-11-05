@@ -1,7 +1,9 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { db, tx, ROOT } from './db.js';
+import { backupTo, listBackups, scheduleBackups, localAddresses, BACKUP_DIR } from './backup.js';
 import { hashPassword, verifyPassword, newToken } from './auth.js';
 import { createSchool, createYear, addDefaultSubjects, PERIOD_NAMES } from './school.js';
 import { subjectCyclesForClass, SUBJECT_CYCLES, SERIES } from './defaults.js';
@@ -1085,8 +1087,49 @@ async function handleApi(req, res, url) {
   if (r.access !== 'public' && !ctx.user) fail(401, 'Veuillez vous connecter.');
   if (r.access === 'admin' && !isAdmin(ctx.user)) fail(403, 'Action réservée à la direction.');
   const result = r.handler(ctx);
+  if (result?.download) {
+    // Fichier à télécharger (sauvegarde de la base)
+    const content = await readFile(result.download.file);
+    return send(res, 200, content, 'application/octet-stream', {
+      'Content-Disposition': `attachment; filename="${result.download.name}"`,
+      'Cache-Control': 'no-store',
+    });
+  }
   send(res, 200, result ?? { ok: true }, undefined, ctx.cookies.length ? { 'Set-Cookie': ctx.cookies } : {});
 }
+
+// ---------------------------------------------------------------- installation locale et sauvegardes
+
+// Adresse à donner aux enseignants (Wi-Fi de l'école) et état des sauvegardes.
+route('GET', '/api/installation', () => ({
+  port: PORT,
+  addresses: localAddresses().map((a) => `http://${a}:${PORT}`),
+  installed: Boolean(process.env.NDAMELY_DATA),
+  backupDir: BACKUP_DIR,
+  backups: listBackups().slice(0, 7),
+}));
+
+// La base contient tous les établissements : on ne la télécharge que si elle n'en contient qu'un (logiciel installé dans l'école).
+function assertSingleSchool() {
+  if (db.prepare('SELECT COUNT(*) AS n FROM schools').get().n > 1) {
+    fail(403, 'Le téléchargement de la sauvegarde est réservé au logiciel installé dans une seule école.');
+  }
+}
+
+route('POST', '/api/backups', () => {
+  assertSingleSchool();
+  const file = path.join(BACKUP_DIR, `ndamely-${new Date().toISOString().slice(0, 10)}.db`);
+  mkdirSync(BACKUP_DIR, { recursive: true });
+  backupTo(file);
+  return { backups: listBackups().slice(0, 7) };
+});
+
+route('GET', '/api/backup', () => {
+  assertSingleSchool();
+  mkdirSync(BACKUP_DIR, { recursive: true });
+  const file = backupTo(path.join(BACKUP_DIR, 'telechargement.tmp'));
+  return { download: { file, name: `ndamely-sauvegarde-${new Date().toISOString().slice(0, 10)}.db` } };
+});
 
 export const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -1101,5 +1144,9 @@ export const server = http.createServer(async (req, res) => {
 });
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.join(ROOT, 'server', 'index.js')) {
-  server.listen(PORT, () => console.log(`Ndamely est disponible sur http://localhost:${PORT}`));
+  scheduleBackups();
+  server.listen(PORT, () => {
+    console.log(`Ndamely est disponible sur http://localhost:${PORT}`);
+    for (const a of localAddresses()) console.log(`  depuis le Wi-Fi de l'école : http://${a}:${PORT}`);
+  });
 }

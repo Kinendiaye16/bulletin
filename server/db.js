@@ -6,7 +6,9 @@ import { defaultSubjectCycle } from './defaults.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const dbPath = process.env.DB_PATH || path.join(ROOT, 'data', 'bulletin.db');
+// Emplacement de la base : DB_PATH, sinon le dossier de données NDAMELY_DATA (logiciel installé), sinon ./data.
+export const dbPath = process.env.DB_PATH
+  || path.join(process.env.NDAMELY_DATA || path.join(ROOT, 'data'), 'bulletin.db');
 if (dbPath !== ':memory:') mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new DatabaseSync(dbPath);

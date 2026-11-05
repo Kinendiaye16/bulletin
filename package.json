@@ -11,6 +11,8 @@
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
     "seed": "node --disable-warning=ExperimentalWarning server/seed.js",
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
+    "build:windows": "node scripts/build-windows.mjs",
+    "icon:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1"
   }
 }

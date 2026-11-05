@@ -1,0 +1,58 @@
+NDAMELY - Gestion des notes et des bulletins
+=============================================
+
+Ndamely s'installe sur l'ordinateur de l'école. Il n'est pas sur internet :
+les données restent dans l'école. Les enseignants peuvent s'y connecter depuis
+leur téléphone, mais seulement quand ils sont sur le Wi-Fi de l'école.
+
+
+1. INSTALLER
+------------
+- Copiez ce dossier sur l'ordinateur de l'école (par exemple sur le Bureau).
+- Double-cliquez sur « Installer Ndamely.cmd ».
+- Windows demande l'autorisation : cliquez sur « Oui ».
+- À la fin, Ndamely s'ouvre dans le navigateur. Créez votre établissement.
+
+Ndamely est installé dans   C:\Program Files\Ndamely
+Les données sont dans        C:\ProgramData\Ndamely
+Une icône « Ndamely » est placée sur le Bureau.
+Ndamely démarre tout seul quand l'ordinateur s'allume.
+
+
+2. LES ENSEIGNANTS SUR LEUR TÉLÉPHONE
+-------------------------------------
+- Dans Ndamely, ouvrez « Établissement » : la carte « Accès par le Wi-Fi »
+  donne l'adresse à communiquer, par exemple  http://192.168.1.20:4500
+- Sur leur téléphone, connectés au même Wi-Fi, les enseignants tapent cette
+  adresse dans le navigateur, puis se connectent avec leur e-mail.
+- L'ordinateur de l'école doit rester allumé.
+- Si les téléphones n'arrivent pas à se connecter : dans Windows, ouvrez
+  Paramètres > Réseau et Internet > Wi-Fi > (votre réseau) et choisissez
+  « Réseau privé ».
+- Conseil : demandez à votre fournisseur ou à votre technicien de donner une
+  adresse fixe à l'ordinateur de l'école, pour que l'adresse ne change pas.
+
+
+3. SAUVEGARDES
+--------------
+- Une copie de toutes les données est faite chaque jour, automatiquement,
+  dans  C:\ProgramData\Ndamely\sauvegardes  (les 30 derniers jours).
+- Chaque semaine, dans « Établissement », cliquez sur « Télécharger une
+  sauvegarde » et copiez le fichier sur une clé USB. Si l'ordinateur tombe en
+  panne, c'est cette copie qui vous sauvera.
+
+Restaurer une sauvegarde : arrêtez Ndamely (menu Démarrer > Ndamely >
+Arrêter Ndamely), remplacez  C:\ProgramData\Ndamely\bulletin.db  par le
+fichier de sauvegarde (en le renommant bulletin.db), puis rouvrez Ndamely.
+
+
+4. METTRE À JOUR
+----------------
+Lancez « Installer Ndamely.cmd » de la nouvelle version : le logiciel est
+remplacé, les données sont conservées.
+
+
+5. DÉSINSTALLER
+---------------
+Menu Démarrer > Ndamely > Désinstaller Ndamely. Les données restent dans
+C:\ProgramData\Ndamely (à supprimer vous-même si vous n'en avez plus besoin).

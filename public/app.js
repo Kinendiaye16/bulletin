@@ -2151,7 +2151,10 @@ async function viewSchool(view) {
   const { school, years } = state.me;
   const savedAt = schoolSavedAt;
   schoolSavedAt = null;
-  const classes = await api('GET', '/api/classes').catch(() => []);
+  const [classes, inst] = await Promise.all([
+    api('GET', '/api/classes').catch(() => []),
+    api('GET', '/api/installation').catch(() => null),
+  ]);
   const activeYear = years.find((y) => y.id === state.me.activeYearId);
   const periodName = activeYear?.periods.find((p) => p.id === state.periodId)?.name ?? activeYear?.periods[0]?.name ?? '';
   const sampleClass = classes[0]?.name ?? (isPrimarySchool() ? 'CI A' : '6e A');
@@ -2241,8 +2244,64 @@ async function viewSchool(view) {
           </div>
         </div>`;
       })}</div>
-    </section>`.s;
+    </section>
 
+    ${inst ? html`<section class="card form-card install-card">
+      <header><h2>Accès par le Wi-Fi et sauvegardes</h2>
+        <p>Ndamely reste sur cet ordinateur : il n'est pas accessible depuis internet.</p></header>
+      <div class="form-card-body">
+        <div class="install-grid">
+          <div>
+            <h3>${icon('phone')}Adresse à donner aux enseignants</h3>
+            ${inst.addresses.length ? html`<ul class="addr-list">${inst.addresses.map((a) => html`<li><code>${a}</code>
+              <button class="btn sm" type="button" data-copy="${a}">Copier</button></li>`)}</ul>
+              <p class="small muted">Sur leur téléphone ou leur ordinateur, connectés au <strong>même Wi-Fi</strong> que cet ordinateur,
+                ils tapent cette adresse dans le navigateur, puis se connectent avec leur e-mail.
+                L'ordinateur de l'école doit rester allumé avec Ndamely ouvert.</p>`
+              : html`<p class="small muted">Cet ordinateur n'est connecté à aucun réseau. Branchez-le au Wi-Fi de l'école pour que les enseignants puissent s'y connecter.</p>`}
+          </div>
+          <div>
+            <h3>${icon('shield')}Sauvegardes</h3>
+            <p class="small muted">Une copie de toutes les données est faite chaque jour automatiquement (les 30 derniers jours sont gardés).
+              Copiez régulièrement une sauvegarde sur une clé USB.</p>
+            ${inst.backups.length ? html`<p class="small">Dernière sauvegarde : <strong>${new Date(inst.backups[0].date).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}</strong></p>` : ''}
+            <div class="row">
+              <button class="btn primary" type="button" id="backup-dl">${icon('file')}Télécharger une sauvegarde</button>
+              <button class="btn" type="button" id="backup-now">Sauvegarder maintenant</button>
+            </div>
+            <p class="small muted">Dossier des sauvegardes : <code>${inst.backupDir}</code></p>
+          </div>
+        </div>
+      </div>
+    </section>` : ''}`.s;
+
+  $$('[data-copy]', view).forEach((b) => (b.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(b.dataset.copy);
+      toast('Adresse copiée.');
+    } catch {
+      prompt('Copiez cette adresse :', b.dataset.copy);
+    }
+  }));
+  $('#backup-dl', view)?.addEventListener('click', async () => {
+    const res = await fetch('/api/backup');
+    if (!res.ok) return toast((await res.json().catch(() => ({}))).error || 'Téléchargement impossible.', 'error');
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement('a'), {
+      href: url, download: res.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || 'ndamely-sauvegarde.db',
+    });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  });
+  $('#backup-now', view)?.addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/backups');
+      toast('Sauvegarde faite.');
+      render();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  });
   const form = $('#f', view);
   // Aperçu mis à jour à chaque frappe, à partir des valeurs du formulaire.
   const refresh = () => { $('#preview', view).innerHTML = preview({ ...school, ...formData(form) }).s; };
