@@ -291,6 +291,7 @@ const routes = [
   [/^#\/matieres$/, viewSubjects, { title: 'Matières', nav: '#/matieres', admin: true }],
   [/^#\/enseignants$/, viewTeachers, { title: 'Équipe', nav: '#/enseignants', admin: true }],
   [/^#\/etablissement$/, viewSchool, { title: 'Établissement', nav: '#/etablissement', admin: true }],
+  [/^#\/passage$/, viewRollover, { title: "Passage à l'année suivante", nav: '#/etablissement', admin: true }],
 ];
 
 function go(hash) {
@@ -2346,7 +2347,8 @@ async function viewSchool(view) {
 
     <section class="card form-card years-card">
       <header class="with-action"><div><h2>Années scolaires</h2><p>L'année active est celle utilisée pour la saisie des notes.</p></div>
-        <button class="btn outline-primary" type="button" id="new-year">${icon('plus')}Nouvelle année scolaire</button></header>
+        <div class="row"><a class="btn primary" href="#/passage">${icon('arrow')}Passer à l'année suivante</a>
+          <button class="btn outline-primary" type="button" id="new-year">${icon('plus')}Nouvelle année vide</button></div></header>
       <div class="form-card-body">${years.map((y) => {
         const active = y.id === state.me.activeYearId;
         return html`<div class="year-row ${active ? 'active' : ''}">
@@ -2484,6 +2486,185 @@ async function viewSchool(view) {
       $('#type-note', dlg).hidden = !changed;
     });
   }));
+}
+
+// =============================================================== passage à l'année suivante
+
+const NEXT_LEVEL_KEYS = ['CI', 'CP', 'CE1', 'CE2', 'CM1', 'CM2', '6E', '5E', '4E', '3E', '2NDE', '1ERE', 'TLE'];
+const LEVEL_ALIASES = { '1RE': '1ERE', '2ND': '2NDE', SECONDE: '2NDE', PREMIERE: '1ERE', TERMINALE: 'TLE' };
+const classLevelKey = (c) => {
+  const k = String(c.level || c.name).trim().split(/\s+/)[0].toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return LEVEL_ALIASES[k] ?? k;
+};
+
+async function viewRollover(view) {
+  const year = currentYear();
+  if (!year) {
+    view.innerHTML = html`<div class="card"><p class="empty">Aucune année scolaire active.</p></div>`.s;
+    return;
+  }
+  const p = await api('GET', `/api/years/${year.id}/rollover`);
+  const total = p.classes.reduce((n, c) => n + c.students.length, 0);
+  const periodType = year.periods.length === 2 ? 'semestre' : 'trimestre';
+
+  // Classes possibles l'année suivante, par niveau : classes reprises + classes déjà créées + nom proposé.
+  const targetNames = (copy) => [...new Set([
+    ...(copy ? p.classes.map((c) => c.name) : []),
+    ...(p.target?.classes ?? []).map((c) => c.name),
+  ])];
+  /** Classes du niveau suivant qui existeront l'année prochaine. */
+  const nextClasses = (c, copy) => targetNames(copy).filter((n) => classLevelKey({ name: n }) === c.next.key)
+    .sort((a, b) => a.localeCompare(b, 'fr'));
+  /**
+   * Classe proposée aux admis : la classe du même nom au niveau suivant (CI A → CP A) si elle existe,
+   * sinon la classe existante de même rang (CP A → CE1 s'il n'y a qu'un CE1), sinon une nouvelle classe.
+   */
+  const promotionTarget = (c, copy) => {
+    const names = nextClasses(c, copy);
+    if (names.includes(c.next.name)) return c.next.name;
+    const sameLevel = p.classes.filter((x) => x.key === c.key).map((x) => x.name).sort((a, b) => a.localeCompare(b, 'fr'));
+    const i = sameLevel.indexOf(c.name);
+    return i >= 0 && i < names.length ? names[i] : c.next.name;
+  };
+  const optionsFor = (c, copy) => {
+    const opts = [];
+    if (c.next) {
+      const names = nextClasses(c, copy);
+      const target = promotionTarget(c, copy);
+      if (!names.includes(target)) opts.push([`promote|${target}`, `Passe en ${target} (nouvelle classe)`]);
+      for (const n of names) opts.push([`promote|${n}`, `Passe en ${n}`]);
+    }
+    opts.push([`repeat|${c.name}`, `Redouble (${c.name})`]);
+    opts.push(['leave|', c.next ? "Quitte l'établissement" : "Quitte l'établissement (fin de cycle)"]);
+    return opts;
+  };
+  const defaultValue = (c, s, copy = true) => (s.suggested === 'promote' && c.next ? `promote|${promotionTarget(c, copy)}`
+    : s.suggested === 'repeat' ? `repeat|${c.name}` : 'leave|');
+  const fmtAvg = (v, scale) => (v === null ? html`<span class="muted">—</span>` : html`<strong>${fmt(v)}</strong><span class="muted">/${scale}</span>`);
+
+  view.innerHTML = html`
+    <div class="page-head">
+      <div class="title-with-icon"><span class="title-icon">${icon('calendar')}</span>
+        <div><h1>Passage à l'année suivante</h1>
+          <p class="muted">Depuis ${p.from.label} · ${plural(total, 'élève')} dans ${plural(p.classes.length, 'classe')}</p></div></div>
+    </div>
+
+    ${p.classes.length ? html`
+    <section class="card form-card">
+      <header><h2>1. La nouvelle année</h2><p>Elle devient l'année active. L'année ${p.from.label}, ses notes et ses bulletins restent consultables (Établissement › Années scolaires › Activer).</p></header>
+      <form id="settings" class="form-card-body">
+        <div class="two">
+          ${field('Année scolaire', 'label', { required: true, value: p.nextLabel, placeholder: 'Ex. : 2027-2028' })}
+          ${selectField('Découpage', 'periodType', [['trimestre', 'Trimestres'], ['semestre', 'Semestres']], periodType)}
+        </div>
+        <label class="check-line"><input type="checkbox" name="copyClasses" checked>
+          <span><strong>Reprendre les classes</strong> : mêmes noms, maîtres, matières, coefficients et professeurs.</span></label>
+        ${p.target ? html`<p class="alert">L'année ${p.target.label} existe déjà (${plural(p.target.classes.length, 'classe')}). Les élèves y seront ajoutés ;
+          ceux qui y sont déjà inscrits seront replacés selon vos nouveaux choix.</p>` : ''}
+      </form>
+    </section>
+
+    <div class="rollover-head">
+      <h2 class="section-title">2. La décision pour chaque élève</h2>
+      <div class="rollover-totals" id="totals"></div>
+    </div>
+    <p class="small muted" style="margin-top:-6px">Ndamely propose une décision d'après la décision du conseil de classe, sinon d'après la moyenne annuelle
+      (redoublement en dessous de la moyenne). Vérifiez et corrigez chaque élève si besoin.</p>
+
+    <div class="rollover-classes">${p.classes.map((c) => html`<section class="card rollover-class" data-class="${c.id}">
+      <header>
+        <div><h3>${c.name} <span class="muted">→</span> ${c.next ? promotionTarget(c, true) : html`<span class="muted">fin de cycle</span>`}</h3>
+          <p class="small muted">${plural(c.students.length, 'élève')}</p></div>
+        <div class="row">
+          ${c.next ? html`<button type="button" class="btn sm" data-all="promote">Tous passent</button>` : ''}
+          <button type="button" class="btn sm" data-all="suggested">Propositions de Ndamely</button>
+        </div>
+      </header>
+      ${c.students.length ? html`<div class="table-wrap flat"><table class="data rollover-table">
+        <thead><tr><th>Élève</th><th class="num">Moyenne annuelle</th><th class="num">Rang</th><th>Conseil de classe</th><th>Décision</th></tr></thead>
+        <tbody>${c.students.map((s) => html`<tr data-student="${s.id}" data-suggested="${defaultValue(c, s)}">
+          <td><strong>${s.last_name}</strong> ${s.first_name}${s.alreadyMoved ? html` <span class="badge">déjà inscrit(e) en ${p.nextLabel}</span>` : ''}</td>
+          <td class="num">${fmtAvg(s.average, c.scale)}</td>
+          <td class="num">${s.rank ? rankLabel(s.rank, s.tie, s.sex) : html`<span class="muted">—</span>`}</td>
+          <td class="small">${s.decision || html`<span class="muted">—</span>`}</td>
+          <td><select class="decision" aria-label="Décision pour ${s.first_name} ${s.last_name}"></select></td>
+        </tr>`)}</tbody></table></div>`
+        : html`<p class="empty">Aucun élève dans cette classe.</p>`}
+    </section>`)}</div>
+
+    <div class="savebar">
+      <span class="muted small" id="summary"></span>
+      <button class="btn primary lg" type="button" id="run">${icon('tick')}Passer à l'année <span id="run-label">${p.nextLabel}</span></button>
+    </div>`
+    : html`<div class="card"><p class="empty">Aucune classe en ${p.from.label} : il n'y a personne à faire passer.</p></div>`}`.s;
+
+  if (!p.classes.length) return;
+  const settings = $('#settings', view);
+  const copy = () => settings.elements.copyClasses.checked;
+
+  // Remplit les listes de décisions (elles dépendent de la reprise des classes).
+  const fillSelects = () => {
+    for (const card of $$('.rollover-class', view)) {
+      const c = p.classes.find((x) => x.id === Number(card.dataset.class));
+      const opts = optionsFor(c, copy());
+      for (const tr of $$('tr[data-student]', card)) {
+        const sel = $('select', tr);
+        const s = c.students.find((x) => x.id === Number(tr.dataset.student));
+        tr.dataset.suggested = defaultValue(c, s, copy());
+        const current = sel.value || tr.dataset.suggested;
+        sel.innerHTML = opts.map(([v, l]) => html`<option value="${v}">${l}</option>`.s).join('');
+        sel.value = opts.some(([v]) => v === current) ? current : opts[0][0];
+      }
+    }
+    refresh();
+  };
+  const refresh = () => {
+    const counts = { promote: 0, repeat: 0, leave: 0 };
+    for (const sel of $$('select.decision', view)) {
+      counts[sel.value.split('|')[0]]++;
+      sel.closest('tr').dataset.action = sel.value.split('|')[0];
+    }
+    $('#totals', view).innerHTML = html`<span class="pill">${counts.promote} admis</span>
+      <span class="pill warn">${counts.repeat} redoublent</span><span class="pill muted">${counts.leave} quittent</span>`.s;
+    $('#summary', view).textContent = `${counts.promote} admis · ${counts.repeat} redoublant(s) · ${counts.leave} départ(s)`;
+  };
+  settings.addEventListener('change', fillSelects);
+  settings.elements.label.addEventListener('input', (e) => { $('#run-label', view).textContent = e.target.value; });
+  view.addEventListener('change', (e) => { if (e.target.matches('select.decision')) refresh(); });
+  $$('[data-all]', view).forEach((b) => (b.onclick = () => {
+    const card = b.closest('.rollover-class');
+    const c = p.classes.find((x) => x.id === Number(card.dataset.class));
+    for (const tr of $$('tr[data-student]', card)) {
+      $('select', tr).value = b.dataset.all === 'promote' ? `promote|${promotionTarget(c, copy())}` : tr.dataset.suggested;
+    }
+    refresh();
+  }));
+  fillSelects();
+
+  $('#run', view).onclick = async () => {
+    if (!settings.reportValidity()) return;
+    const label = settings.elements.label.value.trim();
+    const moves = $$('tr[data-student]', view).map((tr) => {
+      const [action, target] = $('select', tr).value.split('|');
+      return { student_id: Number(tr.dataset.student), from_class_id: Number(tr.closest('.rollover-class').dataset.class), action, target };
+    });
+    const n = (a) => moves.filter((m) => m.action === a).length;
+    if (!confirm(`Passer à l'année ${label} ?\n\n${n('promote')} élève(s) admis, ${n('repeat')} redoublant(s), ${n('leave')} départ(s).\n`
+      + `L'année ${label} deviendra l'année active.`)) return;
+    const btn = $('#run', view);
+    btn.disabled = true;
+    try {
+      const r = await api('POST', `/api/years/${year.id}/rollover`, {
+        label, periodType: settings.elements.periodType.value, copyClasses: copy(), moves,
+      });
+      await loadMe();
+      toast(`Année ${r.label} prête : ${r.promote} admis, ${r.repeat} redoublant(s), ${r.leave} départ(s)${r.classesCreated ? `, ${plural(r.classesCreated, 'classe')} créée(s)` : ''}.`);
+      go('#/classes');
+    } catch (e) {
+      btn.disabled = false;
+      toast(e.message, 'error');
+    }
+  };
 }
 
 // =============================================================== démarrage

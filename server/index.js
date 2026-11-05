@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { db, tx, ROOT } from './db.js';
 import { backupTo, listBackups, scheduleBackups, localAddresses, BACKUP_DIR } from './backup.js';
+import { rolloverPreview, runRollover } from './rollover.js';
 import { hashPassword, verifyPassword, newToken, newRecoveryCode, normalizeRecoveryCode } from './auth.js';
 import { createSchool, createYear, addDefaultSubjects, PERIOD_NAMES } from './school.js';
 import { subjectCyclesForClass, SUBJECT_CYCLES, SERIES } from './defaults.js';
@@ -289,6 +290,29 @@ route('PUT', '/api/school', ({ user, body }) => {
     addDefaultSubjects(user.school_id, body.school_type);
   }
   return schoolOf(user.school_id);
+});
+
+// Passage à l'année suivante : aperçu (élèves, moyennes annuelles, décisions proposées), puis exécution.
+function yearOfSchool(id, user) {
+  const y = db.prepare('SELECT * FROM school_years WHERE id = ? AND school_id = ?').get(toId(id), user.school_id);
+  if (!y) fail(404, 'Année introuvable.');
+  return y;
+}
+route('GET', '/api/years/:id/rollover', ({ user, params }) =>
+  rolloverPreview(user.school_id, yearOfSchool(params.id, user), { classResults, councilOf, periodsOf, studentsOf }));
+
+route('POST', '/api/years/:id/rollover', ({ user, params, body }) => {
+  const from = yearOfSchool(params.id, user);
+  const label = required(body.label, "L'année scolaire", 20);
+  if (!/^\d{4}-\d{4}$/.test(label)) fail(400, "L'année scolaire doit être au format 2027-2028.");
+  if (label === from.label) fail(400, "Choisissez une autre année que l'année écoulée.");
+  if (!Array.isArray(body.moves)) fail(400, 'Aucun élève à faire passer.');
+  return runRollover(user.school_id, from, {
+    label,
+    periodType: PERIOD_NAMES[body.periodType] ? body.periodType : 'trimestre',
+    copyClasses: body.copyClasses !== false,
+    moves: body.moves.filter((m) => ['promote', 'repeat', 'leave'].includes(m.action)),
+  }, { addAllSubjects });
 });
 
 route('POST', '/api/years', ({ user, body }) => {

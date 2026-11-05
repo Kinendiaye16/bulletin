@@ -726,6 +726,27 @@ table.grades td.computed { background: var(--surface-2); font-weight: 600; }
 .sidebar button.me-text { border: 0; background: transparent; color: inherit; font: inherit; text-align: left; padding: 0; cursor: pointer; }
 .sidebar button.me-text:hover strong { text-decoration: underline; }
 
+/* ---------- passage à l'année suivante */
+.check-line { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check-line input { width: auto; margin-top: 4px; accent-color: var(--primary); }
+.rollover-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+.rollover-head .section-title { margin: 0; }
+.rollover-totals { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill.warn { background: var(--warning-soft); color: #8a5a10; }
+.pill.muted { background: var(--surface-2); color: var(--muted); }
+.rollover-classes { display: grid; gap: 18px; margin-top: 14px; }
+.rollover-class { padding: 0; border-radius: 16px; overflow: hidden; margin-bottom: 0; }
+.rollover-class > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 20px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.rollover-class h3 { margin: 0; font-size: 1.1rem; }
+.rollover-class header p { margin: 2px 0 0; }
+.rollover-table td, .rollover-table th { padding: 10px 16px; }
+.rollover-table select { min-width: 210px; }
+.rollover-table tr[data-action="repeat"] td { background: color-mix(in srgb, var(--warning-soft) 60%, transparent); }
+.rollover-table tr[data-action="leave"] td { color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pill.warn { color: #f2c94c; }
+}
+
 /* ---------- pages publiques */
 /* Pages de connexion et d'inscription : photo de classe en fond, voile vert pour la lisibilité */
 .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; position: relative; isolation: isolate; }
