@@ -54,6 +54,8 @@ const ICONS = {
   calendar: '<path d="M8 2v4"/><path d="M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
   printer: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
   tick: '<path d="M20 6 9 17l-5-5"/>',
+  eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.84 0 8.68 3.11 9.94 6.65a1 1 0 0 1 0 .7 10.5 10.5 0 0 1-1.66 2.84"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5A10.5 10.5 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.48 10.48 0 0 1 4.45-5.15"/><path d="m2 2 20 20"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
@@ -152,12 +154,32 @@ function openDialog({ title, body, submitLabel = 'Enregistrer', onSubmit }) {
 }
 
 function field(label, name, { type = 'text', value = '', required = false, placeholder = '', inputmode, min, max, step, autocomplete } = {}) {
-  return html`<label class="field"><span>${label}${required ? ' *' : ''}</span>
-    <input type="${type}" name="${name}" value="${value ?? ''}" placeholder="${placeholder}"
+  const input = html`<input type="${type}" name="${name}" value="${value ?? ''}" placeholder="${placeholder}"
       ${raw(required ? 'required' : '')} ${raw(inputmode ? `inputmode="${esc(inputmode)}"` : '')}
       ${raw(min !== undefined ? `min="${esc(min)}"` : '')} ${raw(max !== undefined ? `max="${esc(max)}"` : '')}
-      ${raw(step !== undefined ? `step="${esc(step)}"` : '')} ${raw(autocomplete ? `autocomplete="${esc(autocomplete)}"` : '')}></label>`;
+      ${raw(step !== undefined ? `step="${esc(step)}"` : '')} ${raw(autocomplete ? `autocomplete="${esc(autocomplete)}"` : '')}>`;
+  // Mot de passe : bouton « œil » pour l'afficher ou le masquer.
+  const control = type === 'password'
+    ? html`<span class="input-pw">${input}<button type="button" class="pw-toggle" data-toggle-pw aria-label="Afficher le mot de passe" title="Afficher le mot de passe">${icon('eye')}</button></span>`
+    : input;
+  return html`<label class="field"><span>${label}${required ? ' *' : ''}</span>
+    ${control}</label>`;
 }
+
+// Afficher / masquer un mot de passe (tous les formulaires).
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-toggle-pw]');
+  if (!btn) return;
+  e.preventDefault();
+  const input = btn.parentElement.querySelector('input');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.innerHTML = icon(show ? 'eyeOff' : 'eye').s;
+  const label = show ? 'Masquer le mot de passe' : 'Afficher le mot de passe';
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+  input.focus();
+});
 
 function selectField(label, name, options, selected = '', { required = false } = {}) {
   return html`<label class="field"><span>${label}${required ? ' *' : ''}</span>
