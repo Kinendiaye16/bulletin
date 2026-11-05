@@ -1,6 +1,6 @@
 {
   "name": "ndamely",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Ndamely — plateforme de gestion des notes et des bulletins scolaires (Sénégal)",
   "type": "module",
