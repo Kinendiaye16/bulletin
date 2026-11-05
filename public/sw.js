@@ -1,7 +1,7 @@
 // Service worker : l'interface reste disponible sans connexion.
 // Les notes saisies hors ligne sont mises en file d'attente par app.js.
-const CACHE = 'ndamely-v13';
-const SHELL = ['/', '/index.html', '/app.js', '/app.css', '/xlsx.js', '/shared/calc.js', '/manifest.webmanifest', '/icon.svg'];
+const CACHE = 'ndamely-v14';
+const SHELL = ['/', '/index.html', '/app.js', '/app.css', '/xlsx.js', '/shared/calc.js', '/manifest.webmanifest', '/icon.svg', '/auth-bg.webp'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
